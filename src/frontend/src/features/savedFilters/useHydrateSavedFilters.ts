@@ -17,6 +17,7 @@ import {
   savedFiltersApi,
 } from './savedFiltersApi';
 import { resolveActiveTags } from './resolveActiveTags';
+import { resetDefaultSearch } from '../defaultSearch/defaultSearchSlice';
 
 /**
  * Loads the signed-in user's saved filters once and hydrates the graph and
@@ -108,6 +109,8 @@ export function useHydrateSavedFilters(): void {
       dispatch(resetRecentJobsFilters());
       dispatch(setGraphHydrated(false));
       dispatch(setRecentJobsHydrated(false));
+      // The last "Save default search" outcome belonged to that account.
+      dispatch(resetDefaultSearch());
       // Clear the cached saved-filters/keyword-lists so a subsequent login - e.g. a
       // different user via Google One Tap, which does not reload the page - cannot
       // hydrate filters from the previous user's still-cached data.

@@ -173,7 +173,7 @@ test.describe('CC-U3 saved default', () => {
 });
 
 test.describe('CC-U4 reset', () => {
-  test('CC-U4 Reset Filters clears the company type and the URL', async ({ browser }) => {
+  test('CC-U4 Reset to default search clears the company type and the URL', async ({ browser }) => {
     const context = await openContext(browser);
     const page = await context.newPage();
     const filtered = searchWith(page, ['fintech']);
@@ -182,7 +182,8 @@ test.describe('CC-U4 reset', () => {
     await expectJobs(page, CORPUS.expected.fintech, 'CC-U4 from the link');
 
     const cleared = searchWith(page, []);
-    await page.getByRole('button', { name: /reset filters/i }).click();
+    // Signed out, the default search is the site defaults: no company type.
+    await page.getByRole('button', { name: 'Reset to default search', exact: true }).click();
     await cleared;
     await expect(companyTypeField(page)).toHaveText('All');
     await expect.poll(() => companyTypesInUrl(page), { message: 'company_type left the URL' }).toEqual([]);

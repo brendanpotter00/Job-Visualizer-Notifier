@@ -42,7 +42,8 @@ export type SignInLocation =
   | 'edit_prefs_link'
   | 'account_page'
   | 'landing_header'
-  | 'landing_cta';
+  | 'landing_cta'
+  | 'save_default_search';
 
 /** Which surface showed the signed-out sign-in overlay. */
 export type OverlayPage = 'recent' | 'companies' | 'bucket_modal';

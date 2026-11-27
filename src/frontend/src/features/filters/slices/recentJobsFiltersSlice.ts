@@ -4,9 +4,13 @@ import type { RecentJobsFilters } from '../../../types';
 
 /**
  * Initial filter state for Recent Jobs page
- * Default time window is all time
+ * Default time window is all time.
+ *
+ * Exported as the signed-out default search (`DefaultSearchButtons`): a
+ * signed-out reader's Save default search is enabled, and Reset to default
+ * search shown, only once the filters differ from this.
  */
-const initialFilters: RecentJobsFilters = {
+export const recentJobsInitialFilters: RecentJobsFilters = {
   // Default window for anyone WITHOUT a saved filter (logged-out visitors, and
   // the frame before a signed-in user's saved filters hydrate). Kept in sync
   // with the backend no-saved-row default
@@ -24,7 +28,7 @@ const initialFilters: RecentJobsFilters = {
   // NOT COSMETICS. `reset${Name}Filters` is
   // `Object.assign(state.filters, initialState.filters)`, which copies only the
   // keys PRESENT on the source object. Add `subcategory` to the interface but
-  // omit it here and "Reset Filters" silently leaves a subcategory selection
+  // omit it here and "Reset to default search" silently leaves a subcategory selection
   // active while visibly clearing everything else — and it typechecks, and every
   // existing test passes.
   subcategory: undefined,
@@ -39,7 +43,7 @@ const initialFilters: RecentJobsFilters = {
  * `setRecentJobsCompanyCategory` (the trend page is one company, so the graph
  * slice has no company type).
  */
-const recentJobsFiltersSlice = createFilterSlice('recentJobs', initialFilters, {
+const recentJobsFiltersSlice = createFilterSlice('recentJobs', recentJobsInitialFilters, {
   // `[]` normalizes to `undefined` (the "All" state), like the facet setters.
   setRecentJobsCompanyCategory: (state, action: PayloadAction<string[] | undefined>) => {
     state.filters.companyCategory = action.payload?.length ? action.payload : undefined;
