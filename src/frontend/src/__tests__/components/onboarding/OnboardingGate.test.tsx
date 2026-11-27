@@ -149,6 +149,7 @@ describe('OnboardingGate — after the questions', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Growth' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
 
     const link = await screen.findByRole('link', { name: 'Saved filters' });

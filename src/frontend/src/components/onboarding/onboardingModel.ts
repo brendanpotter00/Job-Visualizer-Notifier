@@ -1,6 +1,9 @@
 import { ROUTES } from '../../config/routes';
 import { SUBCATEGORY_PARENT_SLUG } from '../../constants/enrichment';
-import type { OnboardingAnswers } from '../../features/savedFilters/savedFiltersApi';
+import type {
+  CompleteOnboardingArgs,
+  OnboardingAnswers,
+} from '../../features/savedFilters/savedFiltersApi';
 import type { SavedFilters } from '../../types';
 
 /**
@@ -10,8 +13,8 @@ import type { SavedFilters } from '../../types';
  * Plan: `docs/implementations/onboardingFlow/plan.html`.
  */
 
-export const ONBOARDING_STEP_COUNT = 3;
-export type OnboardingStep = 0 | 1 | 2;
+export const ONBOARDING_STEP_COUNT = 4;
+export type OnboardingStep = 0 | 1 | 2 | 3;
 
 export interface OnboardingQuestion {
   /** The h1 of the step. There is no subtitle under it. */
@@ -24,6 +27,7 @@ export const ONBOARDING_QUESTIONS: readonly OnboardingQuestion[] = [
   { title: 'What roles are you looking for?', shortName: 'Roles' },
   { title: 'Which levels fit you?', shortName: 'Levels' },
   { title: 'Where do you want to work?', shortName: 'Places' },
+  { title: 'What kinds of companies do you want?', shortName: 'Companies' },
 ];
 
 /** `document.title` while a step is on screen. */
@@ -63,6 +67,7 @@ export const EMPTY_ANSWERS: OnboardingAnswers = {
   subcategory: [],
   level: [],
   locations: [],
+  companyCategory: [],
 };
 
 /**
@@ -76,14 +81,33 @@ export function toRequestAnswers(draft: OnboardingAnswers): OnboardingAnswers {
     subcategory: draft.category.includes(SUBCATEGORY_PARENT_SLUG) ? [...draft.subcategory] : [],
     level: [...draft.level],
     locations: [...draft.locations],
+    companyCategory: [...(draft.companyCategory ?? [])],
   };
+}
+
+/**
+ * The body as an older backend accepts it, for the deploy window. That backend
+ * 422s an unknown key and any `step` past 3, so the company types are left out
+ * and the step is clamped. Whether the backend knows the field is read from the
+ * saved-filters GET (`companyCategory` present), never from facets, which are
+ * edge-cached.
+ */
+export function forBackend(
+  body: CompleteOnboardingArgs,
+  backendKnowsCompanyType: boolean
+): CompleteOnboardingArgs {
+  if (backendKnowsCompanyType) return body;
+  const legacy: CompleteOnboardingArgs = { ...body, step: Math.min(body.step, 3) as 1 | 2 | 3 };
+  delete legacy.companyCategory;
+  return legacy;
 }
 
 /** Whether one question has an answer (for the `onboarding_step_completed` event). */
 export function stepHasAnswer(draft: OnboardingAnswers, step: OnboardingStep): boolean {
   if (step === 0) return draft.category.length > 0;
   if (step === 1) return draft.level.length > 0;
-  return draft.locations.length > 0;
+  if (step === 2) return draft.locations.length > 0;
+  return (draft.companyCategory?.length ?? 0) > 0;
 }
 
 /** Whether the saved filters carry any onboarding answer (decides the toast). */
@@ -92,7 +116,8 @@ export function savedFiltersHaveAnswers(saved: SavedFilters): boolean {
     saved.category.length > 0 ||
     saved.subcategory.length > 0 ||
     saved.level.length > 0 ||
-    saved.locations.length > 0
+    saved.locations.length > 0 ||
+    (saved.companyCategory?.length ?? 0) > 0
   );
 }
 

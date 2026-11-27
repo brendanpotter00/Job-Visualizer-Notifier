@@ -23,14 +23,22 @@ export interface OnboardingAnswers {
   level: string[];
   /** Canonical location names (or the `United States` whole-country option). */
   locations: string[];
+  /**
+   * Company-type slugs (question 4). OPTIONAL: left out for an older backend,
+   * which 422s an unknown key. Omitted, the server keeps the stored value.
+   */
+  companyCategory?: string[];
 }
 
 /** Body of `POST /api/users/onboarding`. */
 export interface CompleteOnboardingArgs extends OnboardingAnswers {
   /** True for Skip (and any close of the questions). Skip keeps the answers. */
   skipped: boolean;
-  /** The question on screen when the flow ended, 1-3 (analytics only). */
-  step: 1 | 2 | 3;
+  /**
+   * The question on screen when the flow ended, 1-4 (analytics only). An older
+   * backend accepts only 1-3, so the flow clamps it there (see `forBackend`).
+   */
+  step: 1 | 2 | 3 | 4;
   /** The PostHog session, when PostHog is on. */
   sessionId?: string;
 }

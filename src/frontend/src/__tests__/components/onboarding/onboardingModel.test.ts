@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   EMPTY_ANSWERS,
   LOCATION_PRESETS,
+  ONBOARDING_QUESTIONS,
+  ONBOARDING_STEP_COUNT,
   displayPlace,
+  forBackend,
   isOnboardingExcludedPath,
   onboardingDocumentTitle,
   savedFiltersHaveAnswers,
@@ -69,9 +72,21 @@ describe('onboardingModel', () => {
     expect(isOnboardingExcludedPath('/pricing-old')).toBe(false);
   });
 
+  it('asks four questions, company types last', () => {
+    expect(ONBOARDING_STEP_COUNT).toBe(4);
+    expect(ONBOARDING_QUESTIONS).toHaveLength(4);
+    expect(ONBOARDING_QUESTIONS[3]).toEqual({
+      title: 'What kinds of companies do you want?',
+      shortName: 'Companies',
+    });
+  });
+
   it('names each step in the tab title', () => {
-    expect(onboardingDocumentTitle(0, 'onesecondswe')).toBe('Question 1 of 3: Roles | onesecondswe');
-    expect(onboardingDocumentTitle(2, 'onesecondswe')).toBe('Question 3 of 3: Places | onesecondswe');
+    expect(onboardingDocumentTitle(0, 'onesecondswe')).toBe('Question 1 of 4: Roles | onesecondswe');
+    expect(onboardingDocumentTitle(2, 'onesecondswe')).toBe('Question 3 of 4: Places | onesecondswe');
+    expect(onboardingDocumentTitle(3, 'onesecondswe')).toBe(
+      'Question 4 of 4: Companies | onesecondswe'
+    );
   });
 
   it('knows whether a step or the saved filters carry an answer', () => {
@@ -79,8 +94,34 @@ describe('onboardingModel', () => {
     expect(stepHasAnswer(draft, 0)).toBe(false);
     expect(stepHasAnswer(draft, 1)).toBe(true);
     expect(stepHasAnswer(draft, 2)).toBe(false);
+    expect(stepHasAnswer(draft, 3)).toBe(false);
+    expect(stepHasAnswer({ ...EMPTY_ANSWERS, companyCategory: ['big_tech'] }, 3)).toBe(true);
     expect(savedFiltersHaveAnswers(SAVED)).toBe(false);
     expect(savedFiltersHaveAnswers({ ...SAVED, locations: ['Remote (US)'] })).toBe(true);
+    expect(savedFiltersHaveAnswers({ ...SAVED, companyCategory: [] })).toBe(false);
+    expect(savedFiltersHaveAnswers({ ...SAVED, companyCategory: ['ai_labs'] })).toBe(true);
+  });
+
+  it('sends the company types as answered', () => {
+    expect(EMPTY_ANSWERS.companyCategory).toEqual([]);
+    expect(
+      toRequestAnswers({ ...EMPTY_ANSWERS, companyCategory: ['fintech'] }).companyCategory
+    ).toEqual(['fintech']);
+  });
+
+  it('shapes the body for an older backend: no company types, step clamped to 3', () => {
+    const body = {
+      ...toRequestAnswers({ ...EMPTY_ANSWERS, companyCategory: ['fintech'] }),
+      skipped: false,
+      step: 4 as const,
+    };
+    expect(forBackend(body, true)).toBe(body);
+    const legacy = forBackend(body, false);
+    expect(legacy).not.toHaveProperty('companyCategory');
+    expect(legacy.step).toBe(3);
+    expect(forBackend({ ...body, step: 2 }, false).step).toBe(2);
+    // The input is not mutated.
+    expect(body.companyCategory).toEqual(['fintech']);
   });
 
   it('toggles a value without duplicating it', () => {

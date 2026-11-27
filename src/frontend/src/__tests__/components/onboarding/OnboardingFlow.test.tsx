@@ -59,8 +59,18 @@ function savedFrom(body: CompleteOnboardingArgs): SavedFilters {
     category: body.category,
     level: body.level,
     subcategory: body.subcategory,
+    ...(body.companyCategory !== undefined && { companyCategory: body.companyCategory }),
     recentActiveKeywordListId: null,
     trendActiveKeywordListId: null,
+  };
+}
+
+/** The saved filters the app holds when the questions open (an empty account). */
+function cachedSavedFilters(knowsCompanyType: boolean): SavedFilters {
+  return {
+    ...savedFrom({ ...EMPTY_BODY, skipped: false, step: 1 }),
+    // A backend that knows company types always sends the key; an older one never does.
+    ...(knowsCompanyType && { companyCategory: [] }),
   };
 }
 
@@ -79,7 +89,10 @@ function PathProbe() {
   return <div data-testid="path">{useLocation().pathname}</div>;
 }
 
-async function renderFlow({ reveal = true }: { reveal?: boolean } = {}) {
+async function renderFlow({
+  reveal = true,
+  knowsCompanyType = true,
+}: { reveal?: boolean; knowsCompanyType?: boolean } = {}) {
   const onDone = vi.fn<(result: OnboardingResult) => void>();
   const onDismiss = vi.fn<() => void>();
   const store = createTestStore();
@@ -94,6 +107,15 @@ async function renderFlow({ reveal = true }: { reveal?: boolean } = {}) {
     jobsApi.util.upsertQueryData('getPublicSettings', undefined, {
       sweSubcategoriesEnabled: reveal,
     })
+  );
+  // `useHydrateSavedFilters` has this in the cache by the time the questions
+  // are answered; it is how the flow knows what the backend accepts.
+  await store.dispatch(
+    savedFiltersApi.util.upsertQueryData(
+      'getSavedFilters',
+      undefined,
+      cachedSavedFilters(knowsCompanyType)
+    )
   );
   const user = userEvent.setup();
   const tree = (open: boolean) => (
@@ -130,9 +152,9 @@ describe('OnboardingFlow — the screens', () => {
     const dialog = await screen.findByRole('dialog', { name: 'What roles are you looking for?' });
     expect(heading()).toHaveTextContent('What roles are you looking for?');
     // The visible counter is decorative; screen readers hear the long form.
-    expect(within(dialog).getByText('1/3')).toHaveAttribute('aria-hidden', 'true');
-    expect(within(dialog).getByText('Question 1 of 3')).toBeInTheDocument();
-    expect(heading()).toHaveAccessibleDescription('Question 1 of 3');
+    expect(within(dialog).getByText('1/4')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(dialog).getByText('Question 1 of 4')).toBeInTheDocument();
+    expect(heading()).toHaveAccessibleDescription('Question 1 of 4');
     // The legend holds only the question: no hint line under it.
     expect(heading().parentElement?.tagName).toBe('LEGEND');
     expect(heading().parentElement?.textContent).toBe('What roles are you looking for?');
@@ -150,44 +172,52 @@ describe('OnboardingFlow — the screens', () => {
   it('moves focus to the question on every step and names the step in the tab title', async () => {
     const { user } = await renderFlow();
     await waitFor(() => expect(heading()).toHaveFocus());
-    expect(document.title).toBe('Question 1 of 3: Roles | onesecondswe');
+    expect(document.title).toBe('Question 1 of 4: Roles | onesecondswe');
 
     await user.click(continueButton());
     await waitFor(() => expect(heading()).toHaveFocus());
     expect(heading()).toHaveTextContent('Which levels fit you?');
-    expect(document.title).toBe('Question 2 of 3: Levels | onesecondswe');
+    expect(document.title).toBe('Question 2 of 4: Levels | onesecondswe');
 
     await user.click(continueButton());
     await waitFor(() => expect(heading()).toHaveFocus());
     expect(heading()).toHaveTextContent('Where do you want to work?');
-    expect(document.title).toBe('Question 3 of 3: Places | onesecondswe');
+    expect(document.title).toBe('Question 3 of 4: Places | onesecondswe');
+    expect(continueButton()).toBeInTheDocument();
+
+    await user.click(continueButton());
+    await waitFor(() => expect(heading()).toHaveFocus());
+    expect(heading()).toHaveTextContent('What kinds of companies do you want?');
+    expect(document.title).toBe('Question 4 of 4: Companies | onesecondswe');
     expect(screen.getByRole('button', { name: 'Show my jobs' })).toBeInTheDocument();
 
     await user.click(backButton());
     await waitFor(() => expect(heading()).toHaveFocus());
-    expect(heading()).toHaveTextContent('Which levels fit you?');
+    expect(heading()).toHaveTextContent('Where do you want to work?');
   });
 
   it('puts the page title back when the questions close but stay mounted', async () => {
     // A Skip whose save fails only closes the dialog (open=false): the gate
     // keeps the flow mounted because the stamp is still null. The tab must go
-    // back to the page's own title, not keep "Question N of 3" for the visit
+    // back to the page's own title, not keep "Question N of 4" for the visit
     // (WCAG 2.4.2 Page Titled). Wrong behaviour this rejects: restoring the
     // title only on unmount.
     document.title = 'Company Hiring Trends | onesecondswe';
     const { setOpen } = await renderFlow();
-    await waitFor(() => expect(document.title).toBe('Question 1 of 3: Roles | onesecondswe'));
+    await waitFor(() => expect(document.title).toBe('Question 1 of 4: Roles | onesecondswe'));
     setOpen(false);
     expect(document.title).toBe('Company Hiring Trends | onesecondswe');
   });
 
-  it('fills the progress bar one third per question', async () => {
+  it('fills the progress bar one quarter per question', async () => {
     const { user } = await renderFlow();
     const fill = () => screen.getByTestId('onboarding-progress-fill');
     expect(screen.getByTestId('onboarding-progress')).toHaveAttribute('aria-hidden', 'true');
-    expect(getComputedStyle(fill()).width).toBe('33.33%');
+    expect(getComputedStyle(fill()).width).toBe('25%');
     await user.click(continueButton());
-    expect(getComputedStyle(fill()).width).toBe('66.67%');
+    expect(getComputedStyle(fill()).width).toBe('50%');
+    await user.click(continueButton());
+    expect(getComputedStyle(fill()).width).toBe('75%');
     await user.click(continueButton());
     expect(getComputedStyle(fill()).width).toBe('100%');
   });
@@ -293,7 +323,10 @@ describe('OnboardingFlow — saving', () => {
     // The pick becomes a chip after the presets, already picked.
     expect(screen.getByRole('checkbox', { name: 'Boston, MA' })).toBeChecked();
     expect(screen.getByText('Boston, MA added.')).toBeInTheDocument();
+    await user.click(continueButton());
 
+    await user.click(screen.getByRole('checkbox', { name: 'AI Labs' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Big Tech' }));
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
 
     await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
@@ -302,8 +335,10 @@ describe('OnboardingFlow — saving', () => {
       subcategory: ['backend'],
       level: ['new_grad', 'entry'],
       locations: ['San Francisco, CA, US', 'Remote (US)', 'Boston, MA, US'],
+      // Display order, not tap order.
+      companyCategory: ['big_tech', 'ai_labs'],
       skipped: false,
-      step: 3,
+      step: 4,
       sessionId: undefined,
     });
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
@@ -313,6 +348,7 @@ describe('OnboardingFlow — saving', () => {
     const { user } = await renderFlow();
     await user.click(continueButton());
     await user.click(continueButton());
+    await user.click(continueButton());
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
     await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
     expect(completeMock.mock.calls[0][0]).toMatchObject({
@@ -320,7 +356,9 @@ describe('OnboardingFlow — saving', () => {
       subcategory: [],
       level: [],
       locations: [],
+      companyCategory: [],
       skipped: false,
+      step: 4,
     });
   });
 
@@ -384,16 +422,20 @@ describe('OnboardingFlow — saving', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Entry' }));
     await user.click(continueButton());
     await user.click(screen.getByRole('checkbox', { name: 'Seattle, WA' }));
+    await user.click(continueButton());
+    await user.click(screen.getByRole('checkbox', { name: 'Big Tech' }));
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     const recent = store.getState().recentJobsFilters.filters;
+    expect(recent.companyCategory).toEqual(['big_tech']);
     expect(recent.category).toEqual(['software_engineering']);
     expect(recent.subcategory).toEqual(['backend']);
     expect(recent.level).toEqual(['entry']);
     expect(recent.location).toEqual(['Seattle, WA, US']);
     expect(recent.timeWindow).toBe('all');
     const graph = store.getState().graphFilters.filters;
+    expect('companyCategory' in graph).toBe(false);
     expect(graph.category).toEqual(['software_engineering']);
     expect(graph.level).toEqual(['entry']);
     expect(graph.timeWindow).toBe('90d');
@@ -401,6 +443,7 @@ describe('OnboardingFlow — saving', () => {
     const cached = savedFiltersApi.endpoints.getSavedFilters.select()(store.getState()).data;
     expect(cached?.category).toEqual(['software_engineering']);
     expect(cached?.locations).toEqual(['Seattle, WA, US']);
+    expect(cached?.companyCategory).toEqual(['big_tech']);
 
     // React Router applies a navigation as a transition, so the new path can
     // render after `onDone` has already fired (the flow calls navigate first).
@@ -417,6 +460,7 @@ describe('OnboardingFlow — saving', () => {
       unwrap: () => Promise.reject({ status: 500, data: { detail: 'Failed to save onboarding' } }),
     }));
     const { user, onDone, onDismiss } = await renderFlow();
+    await user.click(continueButton());
     await user.click(continueButton());
     await user.click(continueButton());
     await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
@@ -450,3 +494,81 @@ describe('OnboardingFlow — saving', () => {
 });
 
 const EMPTY_BODY = { category: [], subcategory: [], level: [], locations: [] };
+
+describe('OnboardingFlow — question 4, company types', () => {
+  it('offers the company types as chips, in display order', async () => {
+    const { user } = await renderFlow();
+    for (let i = 0; i < 3; i += 1) await user.click(continueButton());
+    expect(heading()).toHaveTextContent('What kinds of companies do you want?');
+    const fieldset = heading().closest('fieldset')!;
+    const labels = within(fieldset)
+      .getAllByRole('checkbox')
+      .map((box) => box.closest('label')?.textContent);
+    expect(labels).toEqual([
+      'Big Tech',
+      'AI Labs',
+      'AI Startups',
+      'YC Alumni',
+      'Unicorns',
+      'Breakout Startups',
+      'Space, Defense & Robotics',
+      'Fintech & Trading',
+      'Dev Tools & Infra',
+      'Household Names',
+    ]);
+  });
+
+  it('a Skip on question 4 keeps the company types picked', async () => {
+    const { user } = await renderFlow();
+    for (let i = 0; i < 3; i += 1) await user.click(continueButton());
+    await user.click(screen.getByRole('checkbox', { name: 'Unicorns' }));
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
+    expect(completeMock.mock.calls[0][0]).toMatchObject({
+      companyCategory: ['unicorns'],
+      skipped: true,
+      step: 4,
+    });
+  });
+});
+
+describe('OnboardingFlow — an older backend (deploy window)', () => {
+  // The saved-filters GET has no `companyCategory` key: that backend 422s the
+  // key and any step past 3. Still four questions on screen (no 1/3 -> 1/4
+  // flicker); the 4th answer is simply not sent.
+  it('still shows four questions', async () => {
+    await renderFlow({ knowsCompanyType: false });
+    expect(screen.getByText('Question 1 of 4')).toBeInTheDocument();
+  });
+
+  it('finishing sends no company types and step 3', async () => {
+    const { user, onDone } = await renderFlow({ knowsCompanyType: false });
+    await user.click(screen.getByRole('checkbox', { name: 'Growth' }));
+    for (let i = 0; i < 3; i += 1) await user.click(continueButton());
+    await user.click(screen.getByRole('checkbox', { name: 'Big Tech' }));
+    await user.click(screen.getByRole('button', { name: 'Show my jobs' }));
+
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
+    const body = completeMock.mock.calls[0][0];
+    expect(body).not.toHaveProperty('companyCategory');
+    expect(body).toMatchObject({ category: ['growth'], skipped: false, step: 3 });
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+  });
+
+  it('a Skip on question 4 sends step 3; earlier steps are unchanged', async () => {
+    const { user } = await renderFlow({ knowsCompanyType: false });
+    for (let i = 0; i < 3; i += 1) await user.click(continueButton());
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
+    expect(completeMock.mock.calls[0][0]).toMatchObject({ skipped: true, step: 3 });
+    expect(completeMock.mock.calls[0][0]).not.toHaveProperty('companyCategory');
+  });
+
+  it('a Skip on question 2 still sends step 2', async () => {
+    const { user } = await renderFlow({ knowsCompanyType: false });
+    await user.click(continueButton());
+    await user.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(completeMock).toHaveBeenCalledTimes(1));
+    expect(completeMock.mock.calls[0][0]).toMatchObject({ skipped: true, step: 2 });
+  });
+});

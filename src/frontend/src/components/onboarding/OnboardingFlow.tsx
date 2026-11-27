@@ -11,6 +11,7 @@ import { APP_TITLE } from '../../config/constants';
 import { RESPONSIVE } from '../../config/responsive';
 import { ROUTES } from '../../config/routes';
 import { FALLBACK_CATEGORIES, FALLBACK_LEVELS } from '../../constants/enrichment';
+import { companyCategoryOptions } from '../../config/companyCategories';
 import {
   getPostHogSessionId,
   trackOnboardingStep,
@@ -28,11 +29,13 @@ import { useSubcategoryRevealEnabled } from '../../features/settings/subcategory
 import { extractErrorMessage } from '../../lib/errors';
 import { VISUALLY_HIDDEN_SX } from '../../lib/visuallyHidden';
 import { ErrorState } from '../shared/ErrorDisplay';
+import { CompanyTypeQuestion } from './CompanyTypeQuestion';
 import { LevelQuestion } from './LevelQuestion';
 import { LocationQuestion } from './LocationQuestion';
 import { RoleQuestion } from './RoleQuestion';
 import {
   EMPTY_ANSWERS,
+  forBackend,
   ONBOARDING_QUESTIONS,
   ONBOARDING_SAVE_ERROR,
   ONBOARDING_STEP_COUNT,
@@ -50,6 +53,7 @@ const COLUMN_SX = { width: '100%', maxWidth: T.columnMaxWidth, mx: 'auto' } as c
 const FIELDSET_RESET_SX = { border: 0, m: 0, p: 0, minWidth: 0 } as const;
 
 const selectKeywordLists = savedFiltersApi.endpoints.getKeywordLists.select();
+const selectSavedFilters = savedFiltersApi.endpoints.getSavedFilters.select();
 
 const fill = keyframes`
   from { width: var(--from); }
@@ -59,7 +63,7 @@ const fill = keyframes`
 const stepWidth = (step: number) => `${(((step + 1) / ONBOARDING_STEP_COUNT) * 100).toFixed(2)}%`;
 
 /**
- * The 4px bar under "1/3". It fills one third per question and slides from the
+ * The 4px bar under "1/4". It fills one quarter per question and slides from the
  * last step's width to this one's (from empty when the questions open). It is
  * decoration: the counter beside Skip carries the words.
  */
@@ -148,14 +152,15 @@ export interface OnboardingFlowProps {
 }
 
 /**
- * The first-sign-in questions: roles, levels, places, one on each screen.
+ * The first-sign-in questions: roles, levels, places, company types, one on
+ * each screen.
  *
  * A full-screen dialog at every size, so nothing shows behind it. A black top
- * bar with the wordmark; under it a row that never scrolls, with "1/3" and
+ * bar with the wordmark; under it a row that never scrolls, with "1/4" and
  * Skip over a progress bar; the question; and Back + Continue at the bottom
  * (Back is shown but disabled on question 1). Every question is optional and
  * Continue never waits for an answer. Back keeps the answers, because one
- * draft holds all three steps.
+ * draft holds all four steps.
  *
  * Finish ("Show my jobs") and Skip both send the answers given so far in one
  * request, and so do Escape and any other close of the dialog (they count as
@@ -185,11 +190,17 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
   const { data: facets } = useGetFacetsQuery();
   const revealSubcategories = useSubcategoryRevealEnabled();
   const keywordLists = useAppSelector(selectKeywordLists).data;
+  // Whether this backend knows company types: the saved-filters GET carries
+  // `companyCategory` (`[]` included) only when it does. Facets cannot answer
+  // this: they are edge-cached for a day.
+  const backendKnowsCompanyType =
+    useAppSelector(selectSavedFilters).data?.companyCategory !== undefined;
   const categories = facets?.categories ?? FALLBACK_CATEGORIES;
   const levels = facets?.levels ?? FALLBACK_LEVELS;
   // Same gate as the filter bars: the flag AND a non-empty catalog, with no
   // fallback list, so Software Engineering never opens into nothing.
   const subcategories = revealSubcategories ? (facets?.subcategories ?? []) : [];
+  const companyTypes = companyCategoryOptions(facets);
 
   useEffect(() => {
     if (viewed.current) return;
@@ -248,12 +259,19 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
     submitting.current = true;
     setError(null);
     try {
-      const result = await completeOnboarding({
-        ...toRequestAnswers(draft),
-        skipped,
-        step: (step + 1) as 1 | 2 | 3,
-        sessionId: getPostHogSessionId(),
-      }).unwrap();
+      const result = await completeOnboarding(
+        // An older backend (the deploy window) gets no company types and a
+        // step clamped to 3; it would 422 either. The 4th answer is lost then.
+        forBackend(
+          {
+            ...toRequestAnswers(draft),
+            skipped,
+            step: (step + 1) as 1 | 2 | 3 | 4,
+            sessionId: getPostHogSessionId(),
+          },
+          backendKnowsCompanyType
+        )
+      ).unwrap();
       // Saved-filter hydration runs once per sign-in and has already run, so
       // the answers are pushed the way a Saved Filters save pushes them: the
       // cache first, then the live filters of both pages.
@@ -357,7 +375,7 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
         </Box>
       </Box>
 
-      {/* The step row: "1/3" and Skip, then the bar. It never scrolls away. */}
+      {/* The step row: "1/4" and Skip, then the bar. It never scrolls away. */}
       <Box sx={{ flex: 'none', px: T.gutterX, pt: T.stepRowPaddingTop }}>
         <Box sx={COLUMN_SX}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', minHeight: 44 }}>
@@ -443,6 +461,13 @@ export function OnboardingFlow({ open, onDone, onDismiss, onExited }: Onboarding
                 locations={draft.locations}
                 onChange={(locations) => setDraft((d) => ({ ...d, locations }))}
                 onAnnounce={setAnnouncement}
+              />
+            )}
+            {step === 3 && (
+              <CompanyTypeQuestion
+                options={companyTypes}
+                companyCategory={draft.companyCategory ?? []}
+                onChange={(companyCategory) => setDraft((d) => ({ ...d, companyCategory }))}
               />
             )}
           </Box>
