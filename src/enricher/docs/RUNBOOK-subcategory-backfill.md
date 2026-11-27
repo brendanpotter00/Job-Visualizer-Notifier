@@ -527,7 +527,7 @@ for it.
 | 6 | `P0-3` shipped **AND** `inbox.cleaned` below 50 for three consecutive ticks | ☐ |
 | 7 | `backfill_scope` imported and `matched_local` substituted **everywhere** (it is `PARAM_BACKFILL_DENOMINATOR`, not 8,126) | ☐ |
 | 8 | `P0-5`'s cost table filled in and the projected p95 fits the window | ☐ |
-| 9 | ⚠ **The CATEGORY human gold pool is ≥ 50 and the gate ran WITHOUT `--allow-draft` and PASSED.** A green `--allow-draft` PASS is NOT a gate — it returns 0 on failure, and `regression_gate` refuses below `GATE_MIN_N=50` on `current.category.n`, which is **21 today** | ☐ |
+| 9 | ⚠ **The CATEGORY human gold pool is ≥ 50 and the gate ran WITHOUT `--allow-draft` and PASSED.** A green `--allow-draft` PASS is NOT a gate — it returns 0 on failure, and `regression_gate` refuses below `GATE_MIN_N=50` on `current.category.n` (57 today, 36 of them forward-deployed rows — see row 4 of the gap table) | ☐ |
 | 10 | `ENR-LAT-1`'s two budgets met and its go/no-go recorded **PASSED** | ☐ |
 | 11 | ⚠ **`BF-9`'s breaker constants set from the canary's MEASURED per-layer rate, not the 0.60 / 0.20 placeholders** | ☐ |
 | 12 | ⚠ **`SCHEMA-14` is the write-back path and the legacy `/results` `sent_at` re-open must NOT fire** | ☐ |
