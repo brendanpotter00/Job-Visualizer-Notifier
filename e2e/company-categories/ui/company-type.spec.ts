@@ -61,6 +61,19 @@ test.describe('CC-U1 dropdown', () => {
       'fintech',
     ]);
     await shot(page, 'CC-U1', '02-filtered');
+
+    // Tablet and small laptop widths. Five controls need about 964px in one
+    // row, so without wrap the row ran off the right edge from 600px up to
+    // about 1280px and the whole page scrolled sideways.
+    for (const width of [768, 1024]) {
+      await page.setViewportSize({ width, height: 1024 });
+      await expect(companyTypeField(page)).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth), {
+          message: `no horizontal page scroll at ${width}px`,
+        })
+        .toBeLessThanOrEqual(width);
+    }
     await context.close();
 
     // The same filter on a 375px phone: the control is compacted like its

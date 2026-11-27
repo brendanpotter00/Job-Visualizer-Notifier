@@ -87,7 +87,18 @@ export function RecentJobsFilters() {
           onClear={() => dispatch(setRecentJobsSearchTags(undefined))}
         />
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={RESPONSIVE.spacing.filterSpacing}>
+        {/* Wraps instead of overflowing. Five controls need about 964px in one
+            row, so from 600px up to about 1280px the row used to run off the
+            right edge and scroll the whole page sideways. `useFlexGap` keeps
+            the spacing right on a wrapped line. In the xs column, wrap does
+            nothing. */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={RESPONSIVE.spacing.filterSpacing}
+          useFlexGap
+          flexWrap="wrap"
+          data-testid="recent-jobs-filter-row"
+        >
           <TimeWindowSelect
             value={filters.timeWindow}
             onChange={(tw) => dispatch(setRecentJobsTimeWindow(tw))}

@@ -538,6 +538,18 @@ describe('RecentJobsFilters — Company type', () => {
     );
   });
 
+  // Five controls need about 964px in one row. Without wrap, every width from
+  // 600px to about 1280px scrolled the whole page sideways. jsdom has no layout,
+  // so this pins the style; the e2e CC-U1 case checks the real widths.
+  it('lets the control row wrap instead of overflowing', async () => {
+    const store = await seedRecentStore();
+    renderWithProviders(<RecentJobsFilters />, { store });
+    const row = screen.getByTestId('recent-jobs-filter-row');
+    expect(row).toContainElement(screen.getByRole('combobox', { name: 'Company type' }));
+    expect(row).toContainElement(screen.getByRole('combobox', { name: 'Location' }));
+    expect(getComputedStyle(row).flexWrap).toBe('wrap');
+  });
+
   it('is cleared by Reset Filters', async () => {
     const store = await seedRecentStore({ companyCategory: ['big_tech'] });
     const user = userEvent.setup();
