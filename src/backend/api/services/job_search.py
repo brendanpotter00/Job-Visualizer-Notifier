@@ -89,6 +89,12 @@ class SearchFilters(TypedDict):
     subcategories: list[str] | None
     levels: list[str] | None
     companies: list[str] | None
+    # The company ids the ``company_category`` selection resolved to, server-
+    # side, from ``company_category_members``. ``None`` = no filter. ``[]`` =
+    # an ACTIVE filter whose categories have no members (or are unknown), which
+    # must match NOTHING — so every check on it is ``is not None``, never
+    # truthiness. The recency tiles ignore it, like ``categories``.
+    company_category_ids: list[str] | None
     locations: list[str] | None
     # The ``locations.id`` set for every location selection EXCEPT the country
     # TIER of a country-tier selection — i.e. the exact-canonical-name branch of
@@ -764,6 +770,7 @@ def build_search_where(
     subcategories: list[str] | None = None,
     levels: list[str] | None = None,
     companies: list[str] | None = None,
+    company_category_ids: list[str] | None = None,
     location_ids: list[int] | None = None,
     location_country_paths: list[tuple[str, list[int]]] | None = None,
     locations: list[str] | None = None,
@@ -804,6 +811,17 @@ def build_search_where(
     if companies:
         conditions.append(sql.SQL("job_listings.company = ANY(%s::text[])"))
         params.append(list(companies))
+
+    # Company type, as the member ids the router resolved. ANDs with the
+    # ``companies`` clause above (the reader's followed boards). ``is not
+    # None``, NOT truthiness: ``[]`` is an active filter that matched no
+    # company and must return no rows, where a truthiness check would drop the
+    # clause and return every job. Same plan shape as ``companies`` on prod:
+    # the keyset ``Index Scan Backward`` with company as a ``Filter``, no Sort.
+    # A private custom board is never a member, so an active filter hides it.
+    if company_category_ids is not None:
+        conditions.append(sql.SQL("job_listings.company = ANY(%s::text[])"))
+        params.append(list(company_category_ids))
 
     if categories:
         if len(categories) == 1:

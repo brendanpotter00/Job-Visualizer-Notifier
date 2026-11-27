@@ -567,3 +567,52 @@ def test_disabled_company_job_detail_returns_404(client, db_conn):
 
     resp = client.get(f"/api/jobs/{SourceId.GREENHOUSE}/retired-4")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/jobs/facets — companyCategories
+# ---------------------------------------------------------------------------
+
+
+def test_facets_carry_company_categories_in_file_order(client, db_conn):
+    """The seeded categories ride the facets payload as `companyCategories`, in
+    the data file's order, with `parentSlug` null and `sortOrder` = index."""
+    from api.services.company_categories import (
+        load_company_categories,
+        seed_company_categories,
+    )
+
+    expected = load_company_categories()
+    seed_company_categories(db_conn)
+
+    resp = client.get("/api/jobs/facets")
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()["companyCategories"]
+    assert [r["slug"] for r in rows] == [c["slug"] for c in expected]
+    assert [r["label"] for r in rows] == [c["label"] for c in expected]
+    assert [r["sortOrder"] for r in rows] == list(range(len(expected)))
+    assert {r["parentSlug"] for r in rows} == {None}
+
+
+def test_facets_company_categories_empty_before_the_seed(client):
+    """Migrated but not yet seeded: an empty list, not a missing key."""
+    body = client.get("/api/jobs/facets").json()
+    assert body["companyCategories"] == []
+
+
+def test_facets_survive_a_missing_company_categories_table(client, db_conn):
+    """A process ahead of the migration (or a dropped table) gets [] for this
+    key and the rest of the catalog, never a 500."""
+    cur = db_conn.cursor()
+    cur.execute("ALTER TABLE company_categories RENAME TO company_categories_hidden")
+    db_conn.commit()
+    try:
+        resp = client.get("/api/jobs/facets")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["companyCategories"] == []
+        assert "categories" in body and "levels" in body
+    finally:
+        cur = db_conn.cursor()
+        cur.execute("ALTER TABLE company_categories_hidden RENAME TO company_categories")
+        db_conn.commit()

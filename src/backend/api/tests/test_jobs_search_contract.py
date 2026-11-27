@@ -884,6 +884,7 @@ def test_a_slow_search_logs_one_line_and_the_clock_starts_at_the_LOCATION_RESOLV
     assert len(slow) == 1, slow
     assert slow[0] == (
         "jobs-search slow: 3000ms page=1 keywords=1 companies=1 locations=1"
+        " company_types=0"
     ), slow[0]
 
 

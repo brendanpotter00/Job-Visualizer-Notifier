@@ -1250,6 +1250,13 @@ class JobFacetsResponse(BaseModel):
     # frontend mirrors this: it normalizes a missing key to `[]` rather than
     # treating it as a malformed response.
     subcategories: list[FacetOption] = Field(default_factory=list)
+    # Company categories ("Big Tech", ...) for the Recent page's "Company
+    # type" filter, in display order, ``parentSlug`` always null. Seeded on
+    # boot from ``data/company_categories.json``, not part of ``taxonomy.json``
+    # (the enricher has no use for it). Wire key ``companyCategories``. The
+    # frontend falls back to its bundled copy of the same file when the key is
+    # missing or empty (old backend, stale edge cache, empty seed).
+    company_categories: list[FacetOption] = Field(default_factory=list)
 
 
 class JobSearchMeta(BaseModel):
