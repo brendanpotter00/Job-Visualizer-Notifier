@@ -98,6 +98,35 @@ describe('useHydrateSavedFilters', () => {
     expect(store.getState().recentJobsFilters.filters.searchTags).toBeUndefined();
   });
 
+  it('hydrates a saved company type onto the Recent slice only', () => {
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters({ companyCategory: ['big_tech'] });
+    keywordListsResult.data = [LIST];
+
+    const store = createTestStore();
+    renderHook(() => useHydrateSavedFilters(), { wrapper: makeWrapper(store) });
+
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toEqual(['big_tech']);
+    expect('companyCategory' in store.getState().graphFilters.filters).toBe(false);
+  });
+
+  it.each([
+    ['an older backend (absent)', undefined],
+    ['an empty saved list', []],
+  ])('hydrates no company type for %s', (_label, companyCategory) => {
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters(
+      companyCategory === undefined ? {} : { companyCategory }
+    );
+    keywordListsResult.data = [LIST];
+
+    const store = createTestStore();
+    renderHook(() => useHydrateSavedFilters(), { wrapper: makeWrapper(store) });
+
+    expect(store.getState().recentJobsFilters.hydrated).toBe(true);
+    expect(store.getState().recentJobsFilters.filters.companyCategory).toBeUndefined();
+  });
+
   it('hydrates both slices from server data once both queries resolve', () => {
     mockAuthState.isAuthenticated = true;
     savedFiltersResult.data = makeSavedFilters({

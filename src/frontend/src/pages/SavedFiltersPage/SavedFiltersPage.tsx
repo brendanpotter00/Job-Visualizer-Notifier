@@ -23,6 +23,7 @@ import { ErrorState } from '../../components/shared/ErrorDisplay';
 import { extractErrorMessage } from '../../lib/errors';
 import { TimeWindowDefaults } from '../../components/saved-filters/TimeWindowDefaults';
 import { CategoryLevelDefaults } from '../../components/saved-filters/CategoryLevelDefaults';
+import { CompanyTypeDefaults } from '../../components/saved-filters/CompanyTypeDefaults';
 import { LocationDefaultsEditor } from '../../components/saved-filters/LocationDefaultsEditor';
 import { EnabledCompaniesSection } from '../../components/saved-filters/EnabledCompaniesSection';
 import { KeywordListsEditor } from '../../components/saved-filters/KeywordListsEditor';
@@ -37,7 +38,7 @@ import type { TimeWindow, SavedFilters, KeywordList } from '../../types';
 type SavedFiltersDraft = SavedFilters;
 
 /** Which section's Save button is mid-flight / showing feedback. */
-type SaveSection = 'timeWindows' | 'categoryLevel' | 'locations' | 'keywords';
+type SaveSection = 'timeWindows' | 'categoryLevel' | 'companyTypes' | 'locations' | 'keywords';
 
 /** Stable key for comparing string-list values regardless of order. */
 function listKey(values: string[]): string {
@@ -56,6 +57,9 @@ function draftFromServer(p: SavedFilters): SavedFiltersDraft {
     // on this line for every existing user.
     subcategory: [...p.subcategory],
     level: [...p.level],
+    // Copied ONLY when the backend sent it. Absent means an older backend that
+    // does not know the field: the section stays hidden and no PUT carries it.
+    ...(p.companyCategory !== undefined && { companyCategory: [...p.companyCategory] }),
     recentActiveKeywordListId: p.recentActiveKeywordListId,
     trendActiveKeywordListId: p.trendActiveKeywordListId,
   };
@@ -66,6 +70,7 @@ function PrefsSectionsSkeleton() {
     <>
       <SavedFiltersSectionSkeleton title="Default time windows" controls={2} />
       <SavedFiltersSectionSkeleton title="Default job category & level" controls={2} />
+      <SavedFiltersSectionSkeleton title="Default company types" controls={1} />
       <SavedFiltersSectionSkeleton title="Default locations" controls={1} />
     </>
   );
@@ -218,6 +223,14 @@ export function SavedFiltersPage() {
     );
   }, [draft, serverPrefs]);
 
+  const companyTypesDirty = useMemo(() => {
+    if (!draft || !serverPrefs) return false;
+    if (draft.companyCategory === undefined || serverPrefs.companyCategory === undefined) {
+      return false;
+    }
+    return listKey(draft.companyCategory) !== listKey(serverPrefs.companyCategory);
+  }, [draft, serverPrefs]);
+
   const keywordsDirty = useMemo(() => {
     if (!draft || !serverPrefs) return false;
     return (
@@ -267,6 +280,11 @@ export function SavedFiltersPage() {
         // save.
         subcategory: draft.subcategory,
         level: draft.level,
+        // THE ONE KEY SENT CONDITIONALLY. Omitted, the backend keeps the stored
+        // value (its one exception to full-replace), and an older backend that
+        // does not know the field would 422 the whole PUT if it were present.
+        // So it goes out only when the GET returned it.
+        ...(draft.companyCategory !== undefined && { companyCategory: draft.companyCategory }),
         recentActiveKeywordListId: draft.recentActiveKeywordListId,
         trendActiveKeywordListId: draft.trendActiveKeywordListId,
       }).unwrap();
@@ -360,6 +378,18 @@ export function SavedFiltersPage() {
             success={successSection === 'categoryLevel'}
             error={errorSection === 'categoryLevel' ? errorMessage : null}
             onSave={() => handleSave('categoryLevel')}
+          />
+        )}
+
+        {draft?.companyCategory !== undefined && (
+          <CompanyTypeDefaults
+            companyCategory={draft.companyCategory}
+            onChange={(slugs) => patchDraft({ companyCategory: slugs })}
+            dirty={companyTypesDirty}
+            saving={savingSection === 'companyTypes'}
+            success={successSection === 'companyTypes'}
+            error={errorSection === 'companyTypes' ? errorMessage : null}
+            onSave={() => handleSave('companyTypes')}
           />
         )}
 

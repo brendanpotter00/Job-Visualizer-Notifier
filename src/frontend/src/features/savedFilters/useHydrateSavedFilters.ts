@@ -74,6 +74,13 @@ export function useHydrateSavedFilters(): void {
           category: savedFilters.category,
           level: savedFilters.level,
           subcategory: savedFilters.subcategory,
+          // Recent only (the trend page is one company), and only when this
+          // backend knows the field. `[]` hydrates as "All".
+          ...(savedFilters.companyCategory !== undefined && {
+            companyCategory: savedFilters.companyCategory.length
+              ? savedFilters.companyCategory
+              : undefined,
+          }),
           searchTags: recentTags,
         })
       );

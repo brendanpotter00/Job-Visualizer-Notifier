@@ -152,6 +152,19 @@ export function validateSavedFilters(res: unknown): SavedFilters {
   ) {
     throw new Error('Invalid /api/users/saved-filters response: subcategory must be a string array');
   }
+  // TOLERANT too, and NOT normalized on the way out (unlike `subcategory`):
+  // absence IS the signal. An older backend does not send the key, and it 422s
+  // a PUT that carries it (`extra='forbid'`), so writers send `companyCategory`
+  // only when this GET returned it. Present-and-wrong is still an error.
+  if (
+    res.companyCategory !== undefined &&
+    (!Array.isArray(res.companyCategory) ||
+      res.companyCategory.some((s) => typeof s !== 'string'))
+  ) {
+    throw new Error(
+      'Invalid /api/users/saved-filters response: companyCategory must be a string array'
+    );
+  }
   if (res.recentActiveKeywordListId !== null && typeof res.recentActiveKeywordListId !== 'string') {
     throw new Error(
       'Invalid /api/users/saved-filters response: recentActiveKeywordListId must be string or null'

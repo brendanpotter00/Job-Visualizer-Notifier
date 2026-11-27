@@ -16,6 +16,7 @@ import {
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
+  setRecentJobsCompanyCategory,
 } from '../filters/slices/recentJobsFiltersSlice';
 
 /**
@@ -77,6 +78,12 @@ export function savedFiltersPropagationActions(
     setRecentJobsLevel(saved.level),
     setRecentJobsSubcategory(saved.subcategory)
   );
+  // Company type: Recent page only, never the graph slice. Pushed only when the
+  // backend sent the field; absent means it does not know it, which is not a
+  // reason to clear a live selection.
+  if (saved.companyCategory !== undefined) {
+    actions.push(setRecentJobsCompanyCategory(saved.companyCategory));
+  }
   if (listsLoaded || saved.recentActiveKeywordListId === null) {
     actions.push(
       setRecentJobsSearchTags(resolveActiveTags(saved.recentActiveKeywordListId, lists))
