@@ -4,6 +4,7 @@ import React from 'react';
 import { Provider } from 'react-redux';
 import { createTestStore } from '../../../test/testUtils';
 import { addRecentJobsSearchTag } from '../../../features/filters/slices/recentJobsFiltersSlice';
+import { saveSucceeded } from '../../../features/defaultSearch/defaultSearchSlice';
 import type { SavedFilters, KeywordList } from '../../../types';
 
 // --- Mock the auth + RTK Query hooks the hydration hook depends on ----------
@@ -188,6 +189,24 @@ describe('useHydrateSavedFilters', () => {
     // A further logged-out re-render must NOT fire the reset again.
     rerender();
     expect(resetApiStateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the last Save default search outcome on sign-out (it was that account's)", () => {
+    mockAuthState.isAuthenticated = true;
+    savedFiltersResult.data = makeSavedFilters();
+    keywordListsResult.data = [LIST];
+    const store = createTestStore();
+    const { rerender } = renderHook(() => useHydrateSavedFilters(), {
+      wrapper: makeWrapper(store),
+    });
+    store.dispatch(saveSucceeded('some-key'));
+    expect(store.getState().defaultSearch.result).not.toBeNull();
+
+    mockAuthState.isAuthenticated = false;
+    savedFiltersResult.data = undefined;
+    keywordListsResult.data = undefined;
+    rerender();
+    expect(store.getState().defaultSearch).toEqual({ saving: false, result: null });
   });
 
   it('does not clobber a filter edit the user made before the queries resolved', () => {

@@ -10,6 +10,7 @@ import { PageSkeleton } from '../components/shared/Skeletons';
 import { useEnabledCompanies } from '../features/preferences/useEnabledCompanies';
 import { useHydrateSavedFilters } from '../features/savedFilters/useHydrateSavedFilters';
 import { useRecentJobsUrlSync } from '../features/filters/useRecentJobsUrlSync';
+import { useApplyPendingDefaultSearch } from '../features/defaultSearch/useApplyPendingDefaultSearch';
 import { useFeaturesAuthBridge } from '../features/features/useFeaturesAuthBridge';
 import { useRecordVisit } from '../features/auth/useRecordVisit';
 import { usePostHogPageview } from '../features/analytics/usePostHogPageview';
@@ -134,6 +135,11 @@ function AppContent() {
   // hydration hook, and the hydration hook lives here, but its query params
   // belong on one page only.
   useRecentJobsUrlSync();
+  // Finishes a "Save default search" a signed-out reader started before signing
+  // in. AFTER the URL sync and BEFORE useHydrateSavedFilters, on purpose: its
+  // first effect puts the pending search into the Recent slice through the same
+  // one-shot hydration, so the saved filters below never overwrite it.
+  useApplyPendingDefaultSearch();
   // Hydrate the filter slices (time windows, locations, active keyword list)
   // from saved filters once on sign-in; reset on sign-out. A no-op when the line
   // above already hydrated from a shared link — which is exactly the precedence

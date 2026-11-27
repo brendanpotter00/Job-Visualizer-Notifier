@@ -1,4 +1,4 @@
-import { Box, Stack, Button } from '@mui/material';
+import { Box, Stack } from '@mui/material';
 import { RESPONSIVE } from '../../config/responsive';
 import { useAppDispatch, useAppSelector } from '../../app/hooks.ts';
 import {
@@ -9,7 +9,6 @@ import {
   removeRecentJobsSearchTag,
   toggleRecentJobsSearchTagMode,
   setRecentJobsSearchTags,
-  resetRecentJobsFilters,
   setRecentJobsCategory,
   setRecentJobsLevel,
   setRecentJobsSubcategory,
@@ -24,12 +23,29 @@ import { FacetTreeMultiSelect } from '../shared/filters/FacetTreeMultiSelect.tsx
 import { KeywordFilterInput } from '../shared/filters/KeywordFilterInput.tsx';
 import { TimeWindowSelect } from '../shared/filters/TimeWindowSelect.tsx';
 import { AsyncMultiSelectAutocomplete } from '../shared/filters/AsyncMultiSelectAutocomplete.tsx';
+import { DefaultSearchButtons } from './DefaultSearchButtons.tsx';
+
+/**
+ * The two default-search buttons share one size: small, and shrunk on mobile
+ * (kept >= 36px so each stays an easy tap target). The `sm` slots restate the
+ * theme's 44px floor, 16px horizontal padding and the small button's
+ * 0.8125rem font. The keyboard focus ring is drawn as an outline, because the
+ * default focus ripple is faint on these buttons (the solid save button and
+ * the outlined Reset).
+ */
+const FILTER_ACTION_BUTTON_SX = {
+  minHeight: RESPONSIVE.control.minHeight,
+  px: { xs: 1.5, sm: 2 },
+  fontSize: RESPONSIVE.control.buttonFontSize,
+  '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'text.primary', outlineOffset: '2px' },
+} as const;
 
 /**
  * Filter controls for Recent Job Postings page.
  *
  * What is actually rendered: keywords (free text + saved keyword lists), time
- * window, job category, level, location, and Reset. The slice
+ * window, job category, level, location, and the default-search buttons (Save /
+ * Update default search, then Reset to default search). The slice
  * also generates `toggle/setRecentJobsSoftwareOnly`, but
  * NOTHING dispatches them — there is no software-only control on this page; the
  * built-in "Software Engineering" keyword list in the keywords input is how a
@@ -123,22 +139,10 @@ export function RecentJobsFilters() {
           />
         </Stack>
 
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => dispatch(resetRecentJobsFilters())}
-            sx={{
-              // Shrink the Reset button on mobile too (kept >= 36px so it stays
-              // an easy tap target); sm restates the theme's 44px floor, 16px
-              // horizontal padding, and small-button 0.8125rem font.
-              minHeight: RESPONSIVE.control.minHeight,
-              px: { xs: 1.5, sm: 2 },
-              fontSize: RESPONSIVE.control.buttonFontSize,
-            }}
-          >
-            Reset Filters
-          </Button>
+        {/* Wraps on a phone: an error beside the buttons drops to the next
+            line instead of squeezing them. */}
+        <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <DefaultSearchButtons sx={FILTER_ACTION_BUTTON_SX} />
         </Stack>
       </Stack>
     </Box>

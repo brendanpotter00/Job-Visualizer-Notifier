@@ -119,6 +119,38 @@ describe('createFilterSlice', () => {
       expect(newState.filters).toEqual(initialFilters);
     });
 
+    it('resets to the initial filters, then applies a given patch on top', () => {
+      // Every key listed, as the real slices do: a reset only clears keys
+      // present on the initial filters.
+      const initialFilters: GraphFilters = {
+        timeWindow: '30d',
+        searchTags: undefined,
+        softwareOnly: false,
+        location: undefined,
+        level: undefined,
+      };
+      const slice = createFilterSlice('graph', initialFilters);
+      const state = {
+        filters: {
+          ...initialFilters,
+          timeWindow: '7d' as TimeWindow,
+          location: ['SF'],
+          level: ['senior'],
+        },
+        hydrated: true,
+        userModified: true,
+      };
+
+      const newState = slice.reducer(state, {
+        type: 'graphFilters/resetGraphFilters',
+        payload: { timeWindow: '24h', level: ['entry'] },
+      });
+
+      // The patch wins; a field it leaves out (location) is back to its initial value.
+      expect(newState.filters).toEqual({ ...initialFilters, timeWindow: '24h', level: ['entry'] });
+      expect(newState.userModified).toBe(false);
+    });
+
     it('should set employment type correctly', () => {
       const initialFilters: ListFilters = {
         timeWindow: '30d',

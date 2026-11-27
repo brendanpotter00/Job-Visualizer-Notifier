@@ -29,8 +29,12 @@ export interface OnboardingAnswers {
 export interface CompleteOnboardingArgs extends OnboardingAnswers {
   /** True for Skip (and any close of the questions). Skip keeps the answers. */
   skipped: boolean;
-  /** The question on screen when the flow ended, 1-3 (analytics only). */
-  step: 1 | 2 | 3;
+  /**
+   * The question on screen when the flow ended, 1-3 (analytics only). Absent
+   * when no question was shown: a "Save default search" made while signed out
+   * stamps a new account without opening the questions. The server takes `None`.
+   */
+  step?: 1 | 2 | 3;
   /** The PostHog session, when PostHog is on. */
   sessionId?: string;
 }
