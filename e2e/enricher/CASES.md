@@ -3,10 +3,12 @@
 The contract `.claude/skills/e2e-gate/sections/enricher.md` reads. `PLAN.md` carries the
 reasoning; this is the quick reference + the current status.
 
-**Last real runs: 2026-11-23, `feat/consolidate-enricher`.**
+**Last real runs: 2026-11-26, `claude/fde-software-engineering` (first row); 2026-11-23,
+`feat/consolidate-enricher` (the rest).**
 
 | Run | Collected | Result | Measured |
 |---|---|---|---|
+| `E2E_SOURCE_DB=jobscraper e2e/run.sh enricher` (working tree, v7 + scoped reenrich) | 17 | **17 PASS / 0 FAIL / 0 BLOCKED — GREEN** | **48 s** |
 | `e2e/run.sh enricher` (working tree, v7) | 16 | **16 PASS / 0 FAIL / 0 BLOCKED — GREEN** | **60 s** |
 | `e2e/run.sh enricher --fast` | 7 (9 deselected) | **7 PASS — GREEN** | **27 s** |
 | `e2e/run.sh enricher --enricher-ref enricher-prod-eeff1c9` (pre-v7) | 12 (4 `v7` deselected) | **12 PASS — GREEN** | **51 s** |
@@ -34,6 +36,7 @@ key. No `BLOCKED` state exists here: there is no third party to be blocked by.
 | **EN-07** | Idempotent re-delivery: a lost ack (sandbox rows flipped back to unsent) re-delivered through the real `cli write-back` leaves `job_listings` facets, `job_enrichment` values, `job_tags`, `job_locations` and row counts identical (only `enriched_at` refreshes); a quiet tick touches nothing | — | 🟢 | 🟢 |
 | **EN-08** | Kill switch: against a backend with `ENRICHMENT_USE_EXTERNAL=false` a tick reports the provider DISABLED, claims 0, makes no model call, closes `ok`, touches no JVN row — and its metrics push still lands | slow | 🟢 | 🟢 |
 | **EN-09** | (v7) The subcategory dark knob: off (default), an SWE row lands with `enrichment_subcategories IS NULL` — not `'{}'` — while the label is recorded locally; after `writeback-send-subcategories on` the next tick's SWE row carries `{mobile}` + `subcategory_source='classify'` + its confidence, the non-SWE row stays NULL, and rows already sent are not re-sent | v7 | 🟢 | deselected |
+| **EN-11** | (scoped reenrich) The FDE backfill runbook against real JVN: `reenrich --title-regex … --title-exclude … --category business_ops` dry run lists exactly the 2 FDE engineers and changes nothing; the reset re-queues only them (a "Strategist" look-alike and an FDE row already in SWE are not re-classified); the next tick's new answer REPLACES JVN's `business_ops` with `software_engineering` on rows already `done`, **a CLOSED row included and left CLOSED**; with `writeback:send_subcategories` OFF `["forward_deployed"]` stays local and JVN's subcategory stays NULL; knob ON + `subcategory-push` ships it (and the label the knob-off tick recorded for the SWE row: the drain is not scoped) | v7 + scoped_reenrich | 🟢 | deselected |
 | **EN-10** | Isolation + accounting (runs LAST): the stub's request count EQUALS the chunks the enricher says it queued (so no model call went anywhere else, e.g. `:11434`), every request carried `e2e_enricher` + `qwen3:32b` + `Host: 127.0.0.1:8215`, the DB is under the sandbox, and the dev tree's `src/enricher/data` is exactly as `run.sh` found it (absent) | fast | 🟢 | 🟢 |
 
 ## Corrections to the design table (PLAN.md §3.2), found while building

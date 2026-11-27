@@ -15,9 +15,9 @@ is simply omitted reads as an arm that passed.**
 |---|---|---|
 | P1 | `SKILL_MD_V6_GIT_SHA` recorded | ✔ `8ff1eb1401bf19b9d879678262c389e4f45b8cc1`, verified v6 / `v6+2bf741ee8ea1` |
 | P2 | v6 predictions captured (`EV-2`) | ✘ NOT RUN |
-| P3 | category pool ≥ 55 (`EV-2b`) | ✘ NOT RUN — `load_truth(human_only=True)` = **21** |
+| P3 | category pool ≥ 55 (`EV-2b`) | ✔ by count only — `load_truth(human_only=True)` = **57**, but **not** via the stratified `EV-2b` review: 36 of the 57 are the human-reviewed forward-deployed rows from the FDE correction (`golden/review/forward-deployed-labels.md`), so the pool is FDE-heavy and `data_scientist` still has **0** human rows. `EV-2b` is still owed for a balanced gate |
 | P4 | subcategory pool ≥ 55 (`EV-9b`) | ✘ NOT RUN — `load_truth(facet='subcategory')` = **0** |
-| P5 | weak-rule baseline committed (`EV-11`) | ✔ artifact committed (135 rows, 98 typed); scored card is a **placeholder at n=0** until P4 |
+| P5 | weak-rule baseline committed (`EV-11`) | ✔ artifact committed (156 rows, 118 typed); scored card covers only the **25** human `forward_deployed` rows (set_f1 0.906, a title-regex-friendly slug) until P4 |
 | P6 | latency go/no-go (`ENR-LAT-1`) | ✘ NOT RUN (PR-C) |
 
 ---

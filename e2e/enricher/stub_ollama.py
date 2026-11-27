@@ -24,7 +24,8 @@ always carries the v7 keys too — the v6 recorder ignores keys it does not read
 Control endpoints (loopback only; the server binds 127.0.0.1)
 -------------------------------------------------------------
 ``POST /__stub/mode``  ``{"mode": <mode>, "slow_s": N, "stage": "classify"|"judge"|"subcategory"|"all"}``
-    normal | http500 | garbage | hallucinate_id | invalid_facet | slow
+    normal | http500 | garbage | hallucinate_id | invalid_facet | slow | relabel
+    (``relabel``: classify answers each row's ``Job.relabel`` — a changed rubric)
 ``GET  /__stub/requests``  every request this server answered since the last reset
 ``POST /__stub/reset``     clear the log, back to ``normal``
 
@@ -55,7 +56,7 @@ import fixtures  # noqa: E402
 
 REAL_OLLAMA_PORT = 11434
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
-MODES = ("normal", "http500", "garbage", "hallucinate_id", "invalid_facet", "slow")
+MODES = ("normal", "http500", "garbage", "hallucinate_id", "invalid_facet", "slow", "relabel")
 STAGES = ("all", "classify", "judge", "subcategory")
 
 _STAGE_MARKERS = (
@@ -126,6 +127,9 @@ def _answers(stage: str, items: list[dict[str, Any]], mode: str) -> tuple[int, s
         job = fixtures.job_for(item)
         if mode == "invalid_facet":
             results.append(fixtures.classify_answer(item, category_override="astronaut_engineering"))
+            continue
+        if mode == "relabel":
+            results.append(fixtures.classify_answer(item, relabel=True))
             continue
         if mode == "hallucinate_id":
             results.append(fixtures.classify_answer(item))

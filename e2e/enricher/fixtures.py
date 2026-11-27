@@ -24,6 +24,10 @@ can mix good rows with bad ones (EN-06: "bad output never kills a wave"):
 * ``long_tag``         one tag longer than JVN's MAX_TAG_LENGTH (60), which JVN
                         drops and reports in ``warnings[]``
 
+``relabel`` is what the row's classify answer becomes while the stub is in
+``relabel`` mode — a rubric that changed between two ticks (EN-11: the scoped
+re-enrich re-classifies a row and JVN must take the new answer).
+
 The stub also answers, by title keyword, a job it does not know (see
 ``KEYWORD_RULES``), so a stray row can never wedge the stub — but every case
 asserts on exact sets, so a stray row still turns the case red.
@@ -98,6 +102,8 @@ class Job:
     confidence: float = 0.95
     judge: Judge = DEFAULT_JUDGE
     behaviour: str | None = None
+    #: (category, subcategories) the stub answers in ``relabel`` mode.
+    relabel: tuple[str, tuple[str, ...]] | None = None
     location: str = "San Francisco, CA"
     what: str = "backend services"
     years: str = "5+ years of experience"
@@ -234,10 +240,36 @@ EN10 = (
     _j("EN10-C", "Recruiter", "business_ops", "mid", ("recruiting",), what="hiring"),
 )
 
+# --- EN-11: the scoped re-enrich (FDE correction backfill) ------------------
+# Tick 1 answers the OLD rubric (customer-facing FDEs -> business_ops). Then
+# `reenrich --title-regex ... --title-exclude ... --category business_ops`
+# resets only the two FDE engineers, and tick 2 (stub in `relabel` mode = the
+# new rubric) moves them to software_engineering + forward_deployed. The two
+# others carry a relabel too, so re-queueing either by mistake would show.
+EN11_FDE_RE = r"forward[\s-]?deploy|\bFDE\b"
+EN11_EXCLUDE_RE = r"strateg|program|recruit|engagement|analyst|operations|consult"
+EN11 = (
+    _j("EN11-FDE-OPEN", "Forward Deployed Engineer", "business_ops", "mid",
+       ("customer-integrations", "python"), what="customer deployments",
+       relabel=("software_engineering", ("forward_deployed",))),
+    # Closed in JVN after tick 1: the backfill must correct history too.
+    _j("EN11-FDE-CLOSED", "Forward Deployed Software Engineer, Platform", "business_ops",
+       "senior", ("typescript",), what="customer pilots",
+       relabel=("software_engineering", ("forward_deployed",))),
+    # Look-alike role noun: --title-exclude keeps it out.
+    _j("EN11-STRATEGIST", "Forward Deployed Strategist", "business_ops", "mid",
+       ("strategy",), what="deployment strategy",
+       relabel=("software_engineering", ("forward_deployed",))),
+    # Already SWE: --category business_ops keeps it out.
+    _j("EN11-SWE", "Forward Deployed Engineer, AI", "software_engineering", "mid",
+       ("python",), subcategories=("forward_deployed",),
+       relabel=("business_ops", ())),
+)
+
 GROUPS: dict[str, tuple[Job, ...]] = {
     "EN01": EN01, "EN02": EN02, "EN03": EN03, "EN04": EN04, "EN05": EN05,
     "EN06": EN06, "EN07": EN07, "EN08": EN08, "EN09_A": EN09_A, "EN09_B": EN09_B,
-    "EN10": EN10,
+    "EN10": EN10, "EN11": EN11,
 }
 ALL_JOBS: tuple[Job, ...] = tuple(j for g in GROUPS.values() for j in g)
 BY_ID: dict[str, Job] = {j.job_id: j for j in ALL_JOBS}
@@ -268,17 +300,22 @@ def job_for(item: dict[str, Any]) -> Job:
                                            str(item.get("title") or ""))
 
 
-def classify_answer(item: dict[str, Any], *, category_override: str | None = None) -> dict[str, Any]:
+def classify_answer(item: dict[str, Any], *, category_override: str | None = None,
+                    relabel: bool = False) -> dict[str, Any]:
     """The classify object the stub returns for one ``<job_data>`` element.
 
     Carries BOTH the v6 keys and the v7 ``subcategories`` pair; the v6 recorder
-    simply never reads the extra two."""
+    simply never reads the extra two. ``relabel`` answers the row's
+    ``Job.relabel`` instead (rows without one answer as usual)."""
     job = job_for(item)
     category = category_override or job.category
     if job.behaviour == "invalid_category" and category_override is None:
         category = "astronaut_engineering"
     is_swe = category == "software_engineering"
     subcats = list(job.subcategories) if is_swe else []
+    if relabel and job.relabel is not None:
+        category, relabelled = job.relabel
+        subcats = list(relabelled) if category == "software_engineering" else []
     return {
         "job_listing_id": item.get("job_listing_id"),
         "source_id": item.get("source_id"),

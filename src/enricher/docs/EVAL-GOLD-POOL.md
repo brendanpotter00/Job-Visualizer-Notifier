@@ -32,17 +32,21 @@ SUSTAINING mechanism. Any plan claiming it reaches n≥50 on its own is wrong.
 
 | category | human | draft | total |
 |---|---:|---:|---:|
-| software_engineering | 11 | 124 | 135 |
-| business_ops | 5 | 57 | 62 |
+| software_engineering | 36 | 120 | 156 |
+| business_ops | 16 | 53 | 69 |
 | data_scientist | 0 | 50 | 50 |
 | product_manager | 1 | 33 | 34 |
 | growth | **2** | **0** | 2 |
 | hardware_engineer | **2** | **0** | 2 |
-| **total** | **21** | **264** | **285** |
+| **total** | **57** | **256** | **313** |
 
-⚠ Re-measured after #21 (MTS) added 12 rows. The human pool is unchanged at 21 —
-every new row is `draft` — so P3's `load_truth(human_only=True) >= 55` is no
-closer than it was.
+⚠ Re-measured after the Forward Deployed Engineer correction added 28 real prod
+postings and promoted 8 existing FDE rows, all human-reviewed
+(`golden/review/forward-deployed-labels.md`). The human pool went 21 -> 57, so
+P3's `load_truth(human_only=True) >= 55` now holds **by count** — but 36 of the
+57 are forward-deployed rows and `data_scientist` still has **zero** human rows,
+so this is not the stratified pool `EV-2b` was meant to build. (Before that, #21's
+MTS rows added 12 `draft` rows and left the pool at 21.)
 
 ⚠ **`growth` and `hardware_engineer` CANNOT BE STRENGTHENED FROM THIS SEED.**
 Two rows each, both already human, **zero draft rows available to draw more**.
@@ -161,10 +165,12 @@ is the mistake this paragraph exists to prevent.
 
 ### ⚠ Correct the scope every design track got wrong
 
-The pre-label workload is **124, not 135**. Measured: 285 rows, 135
-`software_engineering`, of which **11 are ALREADY `label_source='human'`** and
-need no pre-label. (It was 115 of 126 before #21's MTS rows joined the seed; all
-9 new SWE rows are `draft`, so they all land in the pre-label workload.)
+The pre-label workload is **120, not 156**. Measured: 313 rows, 156
+`software_engineering`, of which **36 are ALREADY `label_source='human'`** and
+need no pre-label. (It was 124 of 135 before the Forward Deployed Engineer
+correction added 17 human FDE rows and relabelled 4 more into SWE, and 115 of 126
+before #21's MTS rows joined the seed. The 25 human FDE rows also already carry
+`forward_deployed` subcategory gold with provenance `human`.)
 
 ### The run, in order
 
@@ -193,11 +199,15 @@ job-enricher review-apply --facet subcategory --threshold <PARAM_AUDIT_MAX>
 
 ### Tier A's size is measured
 
-`PARAM_REGEX_COVERAGE`, re-measured over the 135 gold-SWE titles:
+`PARAM_REGEX_COVERAGE`, re-measured over the 156 gold-SWE titles:
 
 ```
-typed 98 / 135 = 0.726   ->  tier A (untypable, ALL to human) is 37 rows
+typed 118 / 156 = 0.756  ->  tier A (untypable, ALL to human) is 38 rows
 ```
+
+The FDE correction's 21 new gold-SWE rows are almost all typed by the
+`forward[\s-]deployed` pattern, so coverage ROSE and tier A grew by only 1.
+Before that it was 98/135 = 0.726 (tier A = 37).
 
 It was 94/126 = 0.746 (tier A = 32) before two unrelated things moved it: main's
 MTS eval rows (#21) added 9 mostly-untypable house titles to the seed, and the
