@@ -4,8 +4,9 @@ A **Save default search** button next to **Reset Filters** on Recent Jobs.
 
 > **Revised after review (2026-11-27).** Reset Filters is gone. The row is now
 > `DefaultSearchButtons.tsx`: **Save default search** first (signed in it reads
-> **Update default search**, and on the saved default a grayed-out
-> **✓ Default search saved**, which is the confirmation; no message beside it),
+> **Update default search**, a solid black button; on the saved default a
+> solid green **✓ Default search saved**, which is the confirmation; no message
+> beside it),
 > then **Reset to default search**, shown only while the filters differ from the
 > default (signed in: the saved default; signed out: the site defaults). Reset is
 > `resetRecentJobsFilters(patch)`: the reset takes an optional patch laid over

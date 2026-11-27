@@ -46,10 +46,14 @@ const ERROR_SX = {
 } as const;
 
 /**
- * On the saved default the grayed-out button IS the confirmation, so it reads
- * as a status (secondary text, a green check), not as a dead control.
+ * On the saved default the button IS the confirmation: solid green, white check
+ * and text, so it reads as "saved", not as a dead gray control. It is still
+ * disabled (nothing to save). `success.dark`, not `success.main`: white on the
+ * main green is 4.1:1, under AA for this size; on the dark green it is 5.1:1.
  */
-const SAVED_SX = { '&.Mui-disabled': { color: 'text.secondary' } } as const;
+const SAVED_SX = {
+  '&.Mui-disabled': { bgcolor: 'success.dark', color: 'common.white' },
+} as const;
 
 type SaveLabel = 'save' | 'update' | 'saved' | 'saving';
 
@@ -58,7 +62,7 @@ const SAVE_LABELS: Record<SaveLabel, ReactNode> = {
   update: 'Update default search',
   saved: (
     <>
-      <CheckIcon aria-hidden sx={{ fontSize: '1.125rem', color: 'success.main' }} />
+      <CheckIcon aria-hidden sx={{ fontSize: '1.125rem' }} />
       Default search saved
     </>
   ),
@@ -69,14 +73,15 @@ const SAVE_LABELS: Record<SaveLabel, ReactNode> = {
  * The default-search buttons on Recent Jobs, left to right:
  *
  * 1. Save / Update default search. Saves every current filter as the reader's
- *    default, so the page opens on it next time.
- *    - Signed in, on the saved default: grayed out, "✓ Default search saved".
+ *    default, so the page opens on it next time. A solid black button (the
+ *    theme's primary); Reset stays outlined, so the two don't compete.
+ *    - Signed in, on the saved default: solid green, "✓ Default search saved".
  *      The button is the confirmation; there is no message beside it.
  *    - Signed in, filters changed: "Update default search".
  *    - Signed out: "Save default search", never the check (nothing is saved).
- *      Grayed out on the site defaults. A click stores the search and sends the
- *      reader to sign in; the load they come back to saves it
- *      (`useApplyPendingDefaultSearch`).
+ *      Grayed out (the standard disabled fill) on the site defaults. A click
+ *      stores the search and sends the reader to sign in; the load they come
+ *      back to saves it (`useApplyPendingDefaultSearch`).
  *    - Invisible (its space kept) while auth or the saved filters are loading,
  *      grayed out if they failed, and "Saving…" while a save is in flight. Not
  *      rendered when auth is not configured.
@@ -164,7 +169,9 @@ export function DefaultSearchButtons({ sx }: { sx?: SxProps<Theme> }) {
     <>
       {isEnabled && (
         <Button
-          variant="outlined"
+          // Solid: the page's one save action. Reset beside it stays outlined.
+          variant="contained"
+          disableElevation
           size="small"
           disabled={saving || !ready || onDefault}
           onClick={() => void handleSave()}

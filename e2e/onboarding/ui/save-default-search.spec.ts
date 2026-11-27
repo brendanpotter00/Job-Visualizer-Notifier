@@ -48,7 +48,7 @@ import {
   freshIdentity,
   openSignedIn,
   questions,
-  shot,
+  shot as rawShot,
   trackUserFetches,
   type DbState,
   type Identity,
@@ -59,6 +59,30 @@ const AUTH0_HOST = 'e2e.local.test';
 const BACKEND = process.env.E2E_BACKEND_URL ?? 'http://127.0.0.1:8205';
 
 // --- Drivers -------------------------------------------------------------------
+
+/**
+ * A screenshot taken once the page is still: every finite animation or
+ * transition has finished (the save button fades black -> green over 250ms, and
+ * a closing menu fades out), capped at 2s so a looping one can't hang it. These
+ * screenshots are the PR's evidence, so a mid-fade frame misreports the design.
+ */
+async function shot(page: Page, caseId: string, name: string): Promise<void> {
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]),
+  );
+  // Role queries skip hidden elements, so a kept-mounted closed menu doesn't count.
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await rawShot(page, caseId, name);
+}
 
 const byName = (page: Page, name: string): Locator => page.getByRole('button', { name, exact: true });
 /** Signed out (nothing saved yet). */
@@ -196,7 +220,9 @@ test.describe('OB-U14 signed-in default-search buttons', () => {
     await expect(questions(page)).toHaveCount(0);
     await expectStamped(me, 'OB-U14 after Skip');
 
-    await expect(savedButton(page), 'on the saved default (the server defaults): says so, grayed out').toBeDisabled();
+    await expect(savedButton(page), 'on the saved default (the server defaults): says so, not clickable').toBeDisabled();
+    // The design: a solid green saved state (theme success.dark).
+    await expect(savedButton(page)).toHaveCSS('background-color', 'rgb(46, 125, 50)');
     await expect(resetButton(page), 'on the default: no Reset').toHaveCount(0);
     await expect(byName(page, 'Reset Filters'), 'Reset Filters is gone').toHaveCount(0);
     await shot(page, 'OB-U14', '01-unchanged');
@@ -204,6 +230,9 @@ test.describe('OB-U14 signed-in default-search buttons', () => {
     await addKeyword(page, 'e2e-kw-14');
     await pickTimeWindow(page, '24 hours');
     await expect(updateButton(page), 'filters changed: Update default search').toBeEnabled();
+    // Solid black Update, outlined Reset beside it.
+    await expect(updateButton(page)).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+    await expect(resetButton(page)).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(resetButton(page), 'filters changed: Reset to default search').toBeEnabled();
     const [updateBox, resetBox] = [await updateButton(page).boundingBox(), await resetButton(page).boundingBox()];
     expect(resetBox!.x, 'Reset sits to the right of Update').toBeGreaterThan(updateBox!.x);
