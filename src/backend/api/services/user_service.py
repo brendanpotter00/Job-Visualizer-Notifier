@@ -452,6 +452,7 @@ def complete_onboarding(
     subcategory: list[str],
     level: list[str],
     locations: list[str],
+    company_category: list[str] | None = None,
 ) -> OnboardingResult | None:
     """Stamp the account as onboarded and save its answers (POST /api/users/onboarding).
 
@@ -463,8 +464,9 @@ def complete_onboarding(
        one waits on the row lock, then re-checks the guard and matches none).
        When it matches nothing, NOTHING is written — the answers of a later
        call never replace the first ones — and the existing stamp is returned.
-    2. An UPSERT of the four onboarding columns of ``user_saved_filters``
-       (``category``, ``subcategory``, ``level``, ``locations``). An existing
+    2. An UPSERT of the five onboarding columns of ``user_saved_filters``
+       (``category``, ``subcategory``, ``level``, ``locations``,
+       ``company_category``). An existing
        row keeps its time windows and keyword-list pointers. A NEW row sets
        the time windows explicitly to the app defaults (Recent ``'all'``,
        Trend ``'90d'``, from ``default_saved_filters``): the columns' own DB
@@ -473,6 +475,10 @@ def complete_onboarding(
     ``subcategory`` is a software-engineering refinement, so it is saved only
     when ``software_engineering`` is among ``category``; otherwise it is
     stored as ``[]`` (no filter).
+
+    ``company_category`` (step 4) follows the saved-filters PUT's exception:
+    ``None`` (an SPA that does not send it) keeps the stored value, and a new
+    row gets ``[]``.
 
     Returns ``None`` when no ``users`` row has this id (deleted mid-request;
     the caller upserts it first). Rolls back and re-raises on
@@ -515,19 +521,25 @@ def complete_onboarding(
                 "saved_filters": saved,
             }
 
+        company_category_param = (
+            None if company_category is None else Json(company_category)
+        )
         cursor.execute(
             sql.SQL(
-                "INSERT INTO {} ("
+                "INSERT INTO {table} ("
                 " user_id, recent_time_window, trend_time_window,"
-                " locations, category, level, subcategory"
-                ") VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                " locations, category, level, subcategory, company_category"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                " COALESCE(%s::jsonb, '[]'::jsonb))"
                 " ON CONFLICT (user_id) DO UPDATE SET"
                 " locations = EXCLUDED.locations,"
                 " category = EXCLUDED.category,"
                 " level = EXCLUDED.level,"
                 " subcategory = EXCLUDED.subcategory,"
+                " company_category ="
+                " COALESCE(%s::jsonb, {table}.company_category),"
                 " updated_at = now()"
-            ).format(_SAVED_FILTERS_TABLE),
+            ).format(table=_SAVED_FILTERS_TABLE),
             (
                 user_id,
                 defaults["recent_time_window"],
@@ -536,6 +548,8 @@ def complete_onboarding(
                 Json(category),
                 Json(level),
                 Json(subcategory),
+                company_category_param,
+                company_category_param,
             ),
         )
         saved = get_saved_filters(conn, user_id)

@@ -131,6 +131,9 @@ def put_saved_filters(
             category=body.category,
             level=body.level,
             subcategory=body.subcategory,
+            # None (key absent) keeps the stored value: the one exception to
+            # full-replace. See SavedFiltersUpdateRequest.
+            company_category=body.company_category,
             recent_active_keyword_list_id=body.recent_active_keyword_list_id,
             trend_active_keyword_list_id=body.trend_active_keyword_list_id,
         )

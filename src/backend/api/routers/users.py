@@ -258,7 +258,7 @@ async def complete_user_onboarding(
     """Save the first-sign-in answers and stamp the account as onboarded.
 
     Finish and Skip both end here (``skipped`` tells them apart, and Skip
-    keeps the answers already given). The stamp and the four saved-filter
+    keeps the answers already given). The stamp and the five saved-filter
     columns are written in one transaction by ``complete_onboarding``, whose
     ``IS NULL`` guard makes a second call a no-op: it neither re-stamps nor
     replaces the first answers, and it answers with what is stored.
@@ -294,6 +294,7 @@ async def complete_user_onboarding(
             subcategory=body.subcategory,
             level=body.level,
             locations=body.locations,
+            company_category=body.company_category,
         )
     except psycopg2.Error:
         logger.exception("Failed to complete onboarding for sub=%s", auth0_id)
@@ -307,6 +308,7 @@ async def complete_user_onboarding(
             "subcategory_count": len(saved["subcategory"]),
             "level_count": len(saved["level"]),
             "location_count": len(saved["locations"]),
+            "company_category_count": len(saved["company_category"]),
         }
         if body.skipped:
             _capture_event(

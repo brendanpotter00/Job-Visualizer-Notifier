@@ -1,6 +1,6 @@
 """First-sign-in onboarding: ``users.onboarding_completed_at`` and ``POST /api/users/onboarding``.
 
-The flag decides whether the SPA shows the three questions, so the tests pin
+The flag decides whether the SPA shows the four questions, so the tests pin
 the two ways it can go wrong for a user: the questions showing again for an
 account that already answered them (a re-stamp, or a NULL served for a
 stamped row), and answers being lost or clobbered (Skip dropping them, a
@@ -60,7 +60,8 @@ def _saved_row(db_conn, user_id: str) -> dict | None:
     cur = db_conn.cursor()
     cur.execute(
         "SELECT recent_time_window, trend_time_window, locations, category, level,"
-        " subcategory, recent_active_keyword_list_id, trend_active_keyword_list_id"
+        " subcategory, company_category, recent_active_keyword_list_id,"
+        " trend_active_keyword_list_id"
         " FROM user_saved_filters WHERE user_id = %s",
         (user_id,),
     )
@@ -262,8 +263,13 @@ class TestPostOnboarding:
         assert resp.status_code == 422
 
     def test_step_out_of_range_is_rejected(self, client):
-        assert client.post("/api/users/onboarding", json={"step": 4}).status_code == 422
+        assert client.post("/api/users/onboarding", json={"step": 5}).status_code == 422
         assert client.post("/api/users/onboarding", json={"step": 0}).status_code == 422
+
+    def test_step_four_is_accepted(self, client):
+        """Four questions now: company types is step 4."""
+        resp = client.post("/api/users/onboarding", json={"skipped": True, "step": 4})
+        assert resp.status_code == 200, resp.text
 
     def test_response_is_camel_case(self, client):
         body = client.post("/api/users/onboarding", json={}).json()
@@ -326,8 +332,18 @@ class TestOnboardingAnalytics:
             "subcategory_count": 1,
             "level_count": 1,
             "location_count": 2,
+            "company_category_count": 0,
             "$session_id": "sess-1",
         }
+
+    def test_counts_include_company_categories(self, client, monkeypatch):
+        fake = _install_fake_posthog(monkeypatch)
+        client.post(
+            "/api/users/onboarding",
+            json={**_ANSWERS, "companyCategory": ["big_tech", "fintech"]},
+        )
+        events = [c for c in fake.calls if c["event"] == "onboarding_completed"]
+        assert events[0]["properties"]["company_category_count"] == 2
 
     def test_skip_mirrors_onboarding_skipped_with_its_step(self, client, monkeypatch):
         fake = _install_fake_posthog(monkeypatch)
@@ -379,3 +395,83 @@ class TestCompleteOnboardingService:
         assert second is not None and second["newly_completed"] is False
         assert second["completed_at"] == first["completed_at"]
         assert second["saved_filters"]["category"] == ["growth"]
+
+
+class TestOnboardingCompanyCategory:
+    """Step 4. Omitted keeps the stored value, like the saved-filters PUT, so
+    an SPA built before step 4 (or an old backend window) loses nothing."""
+
+    def test_saved_on_a_new_row(self, client, db_conn):
+        resp = client.post(
+            "/api/users/onboarding",
+            json={**_ANSWERS, "companyCategory": ["big_tech", "ai_labs", "big_tech"]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["savedFilters"]["companyCategory"] == ["big_tech", "ai_labs"]
+        row = _saved_row(db_conn, _caller_row(db_conn)["id"])
+        assert row["company_category"] == ["big_tech", "ai_labs"]
+
+    def test_saved_on_an_existing_row(self, client, db_conn):
+        user = _insert_caller(db_conn)
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO user_saved_filters (user_id, company_category)"
+            " VALUES (%s, %s)",
+            (user["id"], Json(["fintech"])),
+        )
+        db_conn.commit()
+
+        resp = client.post(
+            "/api/users/onboarding", json={"companyCategory": ["unicorns"]}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert _saved_row(db_conn, user["id"])["company_category"] == ["unicorns"]
+
+    def test_omitted_keeps_the_stored_value(self, client, db_conn):
+        user = _insert_caller(db_conn)
+        cur = db_conn.cursor()
+        cur.execute(
+            "INSERT INTO user_saved_filters (user_id, company_category)"
+            " VALUES (%s, %s)",
+            (user["id"], Json(["fintech"])),
+        )
+        db_conn.commit()
+
+        resp = client.post("/api/users/onboarding", json=_ANSWERS)
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["savedFilters"]["companyCategory"] == ["fintech"]
+        assert _saved_row(db_conn, user["id"])["company_category"] == ["fintech"]
+
+    def test_omitted_on_a_new_row_reads_empty(self, client, db_conn):
+        resp = client.post("/api/users/onboarding", json=_ANSWERS)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["savedFilters"]["companyCategory"] == []
+        assert _saved_row(db_conn, _caller_row(db_conn)["id"])["company_category"] == []
+
+    def test_skip_keeps_a_company_type_already_given(self, client, db_conn):
+        resp = client.post(
+            "/api/users/onboarding",
+            json={"companyCategory": ["big_tech"], "skipped": True, "step": 4},
+        )
+        assert resp.status_code == 200, resp.text
+        assert _saved_row(db_conn, _caller_row(db_conn)["id"])["company_category"] == [
+            "big_tech"
+        ]
+
+    def test_a_second_call_does_not_replace_it(self, client, db_conn):
+        client.post("/api/users/onboarding", json={"companyCategory": ["big_tech"]})
+        second = client.post(
+            "/api/users/onboarding", json={"companyCategory": ["fintech"]}
+        )
+        assert second.json()["savedFilters"]["companyCategory"] == ["big_tech"]
+
+    def test_bounds_match_the_saved_filters_put(self, client):
+        too_many = [f"t{i}" for i in range(51)]
+        assert client.post(
+            "/api/users/onboarding", json={"companyCategory": too_many}
+        ).status_code == 422
+        assert client.post(
+            "/api/users/onboarding", json={"companyCategory": [""]}
+        ).status_code == 422

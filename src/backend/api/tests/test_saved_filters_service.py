@@ -131,6 +131,27 @@ class TestGetSavedFilters:
         _upsert_defaults(db_conn, user_id)  # omits it -> defaults to []
         assert get_saved_filters(db_conn, user_id)["subcategory"] == []
 
+    def test_company_category_none_keeps_the_stored_value(self, db_conn):
+        """The one exception to full-replace: ``None`` (key absent) keeps it."""
+        user_id = _seed_user(db_conn)
+        _upsert_defaults(db_conn, user_id, company_category=["big_tech"])
+
+        row = _upsert_defaults(db_conn, user_id, category=["growth"])  # None
+
+        assert row["company_category"] == ["big_tech"]
+        assert get_saved_filters(db_conn, user_id)["company_category"] == ["big_tech"]
+        assert get_saved_filters(db_conn, user_id)["category"] == ["growth"]
+
+    def test_company_category_empty_list_clears_it(self, db_conn):
+        user_id = _seed_user(db_conn)
+        _upsert_defaults(db_conn, user_id, company_category=["big_tech"])
+        _upsert_defaults(db_conn, user_id, company_category=[])
+        assert get_saved_filters(db_conn, user_id)["company_category"] == []
+
+    def test_company_category_none_on_a_new_row_is_empty(self, db_conn):
+        user_id = _seed_user(db_conn)
+        assert _upsert_defaults(db_conn, user_id)["company_category"] == []
+
     def test_isolates_users(self, db_conn):
         a, b = _two_users(db_conn)
         _upsert_defaults(db_conn, a, recent_time_window="24h")
