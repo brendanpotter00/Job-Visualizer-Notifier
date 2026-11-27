@@ -31,7 +31,9 @@ const { useSaveDefaultSearch, SAVE_DEFAULT_SEARCH_ERROR, TOO_MANY_KEYWORD_LISTS_
 
 const inc = (text: string): SearchTag => ({ text, mode: 'include' });
 const ok = <T,>(value: T) => ({ unwrap: () => Promise.resolve(value) });
-const fail = (status: number) => ({ unwrap: () => Promise.reject({ status, data: {} }) });
+const fail = (status: number, data: unknown = {}) => ({
+  unwrap: () => Promise.reject({ status, data }),
+});
 
 const BUILTIN: KeywordList = {
   id: 'builtin-swe',
@@ -194,13 +196,28 @@ describe('useSaveDefaultSearch', () => {
   });
 
   it('a POST 422 (the list cap) fails with the cap message and sends no PUT', async () => {
-    createMock.mockReturnValue(fail(422));
+    createMock.mockReturnValue(fail(422, { detail: 'Keyword list limit reached (20)' }));
     const { store, save } = await setup();
     expect(await save(search({ searchTags: [inc('rust')] }))).toBe(false);
     expect(putMock).not.toHaveBeenCalled();
     expect(store.getState().defaultSearch).toMatchObject({
       saving: false,
       result: { kind: 'error', message: TOO_MANY_KEYWORD_LISTS_ERROR },
+    });
+  });
+
+  it('a POST 422 validation error (e.g. a keyword too long) shows the generic message', async () => {
+    createMock.mockReturnValue(
+      fail(422, {
+        detail: [{ type: 'string_too_long', loc: ['body', 'tags', 0, 'text'], msg: 'too long' }],
+      })
+    );
+    const { store, save } = await setup();
+    expect(await save(search({ searchTags: [inc('x'.repeat(150))] }))).toBe(false);
+    expect(putMock).not.toHaveBeenCalled();
+    expect(store.getState().defaultSearch.result).toMatchObject({
+      kind: 'error',
+      message: SAVE_DEFAULT_SEARCH_ERROR,
     });
   });
 

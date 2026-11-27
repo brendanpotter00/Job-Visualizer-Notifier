@@ -37,6 +37,17 @@ function errorStatus(err: unknown): unknown {
     : undefined;
 }
 
+/** The backend's list-cap 422: an HTTPException, whose `detail` is a string (pydantic's is an array). */
+function isListLimitError(err: unknown): boolean {
+  if (errorStatus(err) !== 422) return false;
+  const data = (err as { data?: unknown }).data;
+  return (
+    data !== null &&
+    typeof data === 'object' &&
+    typeof (data as { detail?: unknown }).detail === 'string'
+  );
+}
+
 /** `lists` with `written` replacing its old copy, or added before the built-in. */
 function withList(lists: KeywordList[], written: KeywordList): KeywordList[] {
   const index = lists.findIndex((list) => list.id === written.id);
@@ -88,9 +99,8 @@ export function useSaveDefaultSearch() {
               tags: search.searchTags,
             }).unwrap();
           } catch (err) {
-            const status = errorStatus(err);
-            if (status === 422) throw new ReaderFacingError(TOO_MANY_KEYWORD_LISTS_ERROR);
-            if (status !== 409) throw err;
+            if (isListLimitError(err)) throw new ReaderFacingError(TOO_MANY_KEYWORD_LISTS_ERROR);
+            if (errorStatus(err) !== 409) throw err;
             // A "Default search" list exists that our copy of the lists missed.
             known = await dispatch(
               savedFiltersApi.endpoints.getKeywordLists.initiate(undefined, {
@@ -133,8 +143,7 @@ export function useSaveDefaultSearch() {
         return true;
       } catch (err) {
         console.error('[useSaveDefaultSearch] save failed', err);
-        const message =
-          err instanceof ReaderFacingError ? err.message : SAVE_DEFAULT_SEARCH_ERROR;
+        const message = err instanceof ReaderFacingError ? err.message : SAVE_DEFAULT_SEARCH_ERROR;
         dispatch(saveFailed({ key, message }));
         return false;
       }
