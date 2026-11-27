@@ -54,5 +54,5 @@ def test_co02_never_unloads_mid_tick(make_sandbox, step, unload_kills):
     u = unloads[0]
     assert u["t"] > job_end[0]["t"], (
         f"unload at {u['t']:.3f} came before the in-flight wrapper exited at {job_end[0]['t']:.3f}")
-    assert not sb.unload_hit_a_tick(u), f"a tick-owning wrapper was running at the unload: {u}"
+    assert u["job_running"] is False, "a job was running at the unload"
     assert u["lock"] == sb.state()["old_lock_payload"], f"lock at unload: {u['lock']!r}"
