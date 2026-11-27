@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { LANDING_CONTENT, TOP_COMPANY_IDS } from '../../../pages/LandingPage/content';
 import type { SectionIntro } from '../../../pages/LandingPage/content';
-import { COMPANY_CATEGORIES } from '../../../pages/LandingPage/companyCategories';
+import { COMPANY_CATEGORIES } from '../../../config/companyCategories';
 import { ROUTES } from '../../../config/routes';
 import { BILLING_CONFIG } from '../../../config/billing';
 import { COMPANIES } from '../../../config/companies';
