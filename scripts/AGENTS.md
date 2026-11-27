@@ -400,7 +400,7 @@ Edit company-specific `config.py`:
 - `EXCLUDE_TITLE_KEYWORDS` - Jobs matching these are filtered out
 - `LOCATION_FILTER` - Location filter (US-only for Google, configurable for Apple)
 
-All three scrapers route their title filters through `shared.utils.title_matches_keyword`. Most keywords match as case-insensitive substrings (e.g. `software`, `ML`, `iOS`), but whole-word keywords like `intern` (see `_WHOLE_WORD_KEYWORD_PATTERNS`) match only as whole words — so `intern` matches "Software Engineering Intern"/"Internship" but not "Internet"/"International"/"Internal".
+Every scraper lists `intern` in `INCLUDE_TITLE_KEYWORDS` and matches its INCLUDE list through `shared.utils.title_matches_keyword`. Most keywords match as case-insensitive substrings (e.g. `software`, `ML`, `iOS`), but whole-word keywords like `intern` (see `_WHOLE_WORD_KEYWORD_PATTERNS`) match only as whole words — so `intern` matches "Software Engineering Intern"/"Internship" but not "Internet"/"International"/"Internal". Google, Apple and Microsoft match EXCLUDE through the same helper; Amazon, TikTok and Meta keep their own word-boundary EXCLUDE regex. `intern` admits interns of every discipline (e.g. "Finance Intern") unless the EXCLUDE list drops them; Apple and Meta have no server-side keyword search, so their title filter is the only narrowing.
 
 **Adding a New Company Scraper:**
 1. Create new directory: `scripts/<company>_jobs_scraper/`

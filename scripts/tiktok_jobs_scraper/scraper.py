@@ -24,7 +24,7 @@ from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
 from shared.posted_date import effective_posted_date
-from shared.utils import get_iso_timestamp
+from shared.utils import get_iso_timestamp, title_matches_keyword
 
 from .config import (
     EXCLUDE_TITLE_KEYWORDS,
@@ -52,8 +52,6 @@ _EXCLUDE_RE = re.compile(
     r"(?<![a-z])(?:%s)(?![a-z])"
     % "|".join(re.escape(kw.lower()) for kw in EXCLUDE_TITLE_KEYWORDS)
 )
-
-_INCLUDE_KEYWORDS_LOWER = [kw.lower() for kw in INCLUDE_TITLE_KEYWORDS]
 
 # lifeattiktok.com is a SPA that keeps polling after load, so the base class's
 # wait_until="networkidle" would burn its full timeout before falling back.
@@ -141,14 +139,17 @@ class TikTokJobsScraper(BaseScraper):
 
         EXCLUDE uses word boundaries, INCLUDE uses plain substrings — a loose
         EXCLUDE silently discards real listings, whereas a loose INCLUDE only
-        lets through an extra role the keyword search already surfaced.
+        lets through an extra role the keyword search already surfaced. The one
+        INCLUDE exception is whole-word keywords like "intern" (see
+        shared.utils.title_matches_keyword), so "intern" does not over-match
+        "internet" / "international" / "internal".
         """
         if not job_title:
             return False
         title_lower = job_title.lower()
         if _EXCLUDE_RE.search(title_lower):
             return False
-        return any(kw in title_lower for kw in _INCLUDE_KEYWORDS_LOWER)
+        return any(title_matches_keyword(kw, job_title) for kw in INCLUDE_TITLE_KEYWORDS)
 
     def filter_location(self, location: Optional[str]) -> bool:
         """Keep only jobs in the configured country.
