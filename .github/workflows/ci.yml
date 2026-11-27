@@ -5,8 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a PR cancels that PR's older run. On main every commit gets
+# its own group, so no merge's run is ever cancelled or replaced: Railway
+# skips deploying a backend commit whose CI did not pass, and a cancelled
+# run counts as not passing. With one shared main group, #397's merge
+# cancelled #396's run and #396's backend change never deployed.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 # Every job carries a timeout-minutes, about 2-3x its slowest recent run,
