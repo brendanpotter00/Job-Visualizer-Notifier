@@ -11,6 +11,10 @@
 //   OB-U17  decoy: the sign-in is abandoned (the next load is still signed
 //           out): the search shows once, nothing is sent, and a new visit to
 //           bare /jobs is back on the site defaults.
+//   OB-U19  signed in: a company type change ALONE enables the button, the save
+//           writes company_category, and a new context opens on it.
+//   OB-U20  signed out with a company type -> a brand-new account: the stamp and
+//           the save both carry the company type; the questions never open.
 //
 // The signed-out click really calls Auth0's `loginWithRedirect`; the section's
 // network fence aborts that navigation (the Auth0 domain is a fake .test host).
@@ -88,6 +92,15 @@ async function pickSpecialty(page: Page, parent: string, child: string): Promise
 async function pickLevel(page: Page, label: string): Promise<void> {
   await filterField(page, 'Level').click();
   const menu = page.getByRole('listbox');
+  await menu.getByRole('option', { name: label, exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+}
+
+async function pickCompanyType(page: Page, label: string): Promise<void> {
+  await filterField(page, 'Company type').click();
+  const menu = page.getByRole('listbox');
+  await expect(menu).toBeVisible();
   await menu.getByRole('option', { name: label, exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(menu).toBeHidden();
@@ -383,3 +396,86 @@ test.describe('OB-U17 decoy: the sign-in is abandoned', () => {
     await context.close();
   });
 });
+
+test.describe('OB-U19 signed-in Save default search with a company type', () => {
+  test('OB-U19 a company type alone is a change; the save and a new context carry it', async ({ browser }) => {
+    const me: Identity = freshIdentity('OB-U19');
+    expectNoAccountYet(me);
+    const context = await openSignedIn(browser, me);
+    const page = await context.newPage();
+    await page.goto(RECENT_JOBS);
+
+    const dialog = await expectQuestion(page, 0);
+    await button(dialog, 'Skip').click();
+    await expect(questions(page)).toHaveCount(0);
+    await expectStamped(me, 'OB-U19 after Skip');
+    await expect(saveButton(page), 'on the saved default: grayed out').toBeDisabled();
+
+    await pickCompanyType(page, 'Fintech & Trading');
+    await expect(filterField(page, 'Company type')).toHaveText('Fintech & Trading');
+    await expect(saveButton(page), 'only the company type changed: enabled').toBeEnabled();
+    await shot(page, 'OB-U19', '01-company-type-changed');
+
+    await saveButton(page).click();
+    await expect(savedStatus(page)).toBeVisible();
+    await expect(saveButton(page), 'just saved: grayed out again').toBeDisabled();
+    await expect
+      .poll(() => dbState(me).savedFilters?.companyCategory, { message: 'OB-U19: the saved company types' })
+      .toEqual(['fintech']);
+    expect(dbState(me).savedFilters?.recentTimeWindow, 'OB-U19: the rest of the search is unchanged').toBe('all');
+    await shot(page, 'OB-U19', '02-saved');
+    await context.close();
+
+    // A new device opens on the saved company type, button grayed out.
+    const again = await openSignedIn(browser, me);
+    const page2 = await again.newPage();
+    const tracker = trackUserFetches(page2);
+    await page2.goto(RECENT_JOBS);
+    await expectQuestionsNeverOpen(page2, tracker, 'OB-U19 new context');
+    await expect(filterField(page2, 'Company type')).toHaveText('Fintech & Trading');
+    await expect(saveButton(page2)).toBeDisabled();
+
+    // Clearing it is a change again.
+    await pickCompanyType(page2, 'Fintech & Trading');
+    await expect(saveButton(page2), 'company type cleared: enabled').toBeEnabled();
+    await shot(page2, 'OB-U19', '03-new-context');
+    await again.close();
+  });
+});
+
+test.describe('OB-U20 signed out with a company type, then a brand-new account', () => {
+  test('OB-U20 the stamp and the save carry the company type', async ({ browser }) => {
+    const me = freshIdentity('OB-U20');
+    expectNoAccountYet(me);
+    const context = await openSignedOut(browser);
+    const page = await context.newPage();
+    await signedOutClick(
+      page,
+      async () => {
+        await pickLevel(page, 'Entry');
+        await pickCompanyType(page, 'AI Labs');
+      },
+      'OB-U20',
+    );
+
+    await signInContext(context, me);
+    const tracker = trackUserFetches(page);
+    await page.goto(RECENT_JOBS);
+    await expectQuestionsNeverOpen(page, tracker, 'OB-U20 back from sign-in (new account)');
+
+    await expect(savedStatus(page), 'the search was saved on arrival').toBeVisible({ timeout: 15_000 });
+    await expect(filterField(page, 'Company type')).toHaveText('AI Labs');
+    await expect(filterField(page, 'Level')).toHaveText('Entry');
+    await expect(saveButton(page)).toBeDisabled();
+    await shot(page, 'OB-U20', '02-back-saved');
+
+    await expectStamped(me, 'OB-U20 a new account finishing a signed-out save');
+    await expect
+      .poll(() => dbState(me).savedFilters?.companyCategory, { message: 'OB-U20: the saved company types' })
+      .toEqual(['ai_labs']);
+    expect(dbState(me).savedFilters?.level, 'OB-U20: the saved level').toEqual(['entry']);
+    expect(await page.evaluate((k) => window.sessionStorage.getItem(k), PENDING_KEY), 'pending cleared').toBeNull();
+    await context.close();
+  });
+});
+

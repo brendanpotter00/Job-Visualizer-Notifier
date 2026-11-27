@@ -7,7 +7,7 @@ each case proves, how to run just it, and what to look at first when it goes red
 ## Run it
 
 ```bash
-e2e/run.sh onboarding              # full gate (API OB-01..OB-10 + UI OB-U1..OB-U18)
+e2e/run.sh onboarding              # full gate (API OB-01..OB-10 + UI OB-U1..OB-U20)
 e2e/run.sh onboarding --fast       # API tier only — run on every commit
 e2e/run.sh onboarding --case OB-U1 # one case (OB-U1 and OB-U2 run together: U2 builds on U1)
 e2e/run.sh onboarding --keep-up    # leave the stack on :8205/:3205 (and the identities) for a fix loop
@@ -88,6 +88,8 @@ SWE jobs; never on `/` or `/pricing`) are product decisions in the plan, not tes
 | **OB-U16** | Signed out → existing account: its old default is replaced, the trend window and the stamp are not touched | Same hook; a Senior/7-day page = the saved row hydrated before the restore |
 | **OB-U17** | Decoy: an abandoned sign-in shows the search once, sends nothing, drops the pending search; a new bare `/jobs` visit is the site defaults | The discard effect in `useApplyPendingDefaultSearch` (signed-out load) |
 | **OB-U18** | An older backend (saved-filters GET without `companyCategory`, POST 422s the key or a step past 3) still saves: four questions on screen, the POST carries neither | `forBackend` in `onboardingModel.ts` and the capability read in `OnboardingFlow.submit` (the saved-filters GET, never facets) |
+| **OB-U19** | Signed in: a company type change alone enables Save default search; the save writes `company_category`; a new context opens on it | `dbState(me).savedFilters.companyCategory`; then `RECENT_LIST_FIELDS` in `defaultSearch.ts` (the companyCategory row) and `toSavedFiltersPayload` (sends the key only when the GET carried it) |
+| **OB-U20** | Signed out with a company type → a brand-new account: the stamp and the save both carry it, and the questions never open | `toOnboardingAnswers` and the `forBackend` call in `useApplyPendingDefaultSearch.ts`; `ROWS_ADDED_AFTER_V1` in `pendingDefaultSearch.ts` |
 
 ## Reading a red
 
