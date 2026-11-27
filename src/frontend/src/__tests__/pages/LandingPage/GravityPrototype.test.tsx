@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { createTestStore, renderWithProviders } from '../../../test/testUtils';
 import { GravityPrototype } from '../../../pages/LandingPage/prototypes/GravityPrototype/GravityPrototype';
@@ -82,11 +82,22 @@ function buttonLinks(name: string) {
     .filter((el) => el.classList.contains('MuiButton-root'));
 }
 
-// Warm the lazy scene chunk once: otherwise the first test to mount it pays the
-// cold dynamic import inside findByTestId's 1 s window, which flakes on busy CI.
-beforeAll(async () => {
-  await import('../../../pages/LandingPage/prototypes/GravityPrototype/GravityScene');
-});
+/**
+ * The scene is the page's one async mount, so its wait gets a bound sized to
+ * the work instead of findBy's 1 s default. Opening the post-paint gate
+ * re-renders the whole page, and the first scene mount in a file also pays
+ * the `lazy()` round trip: the dynamic import (vitest's module runner sends
+ * every `import()` through its main thread, so pre-importing the mocked
+ * module saves nothing) and React 19's Suspense reveal throttle (content waits
+ * until 300 ms after the fallback commits). Measured: ~430 ms idle, ~1.2 s
+ * with the CPU 3x oversubscribed. That is how the desktop-tier test timed out
+ * on a loaded CI shard.
+ */
+const SCENE_MOUNT_TIMEOUT_MS = 5000;
+
+function findScene() {
+  return screen.findByTestId('gravity-scene', {}, { timeout: SCENE_MOUNT_TIMEOUT_MS });
+}
 
 afterEach(() => {
   Reflect.deleteProperty(window.navigator, 'hardwareConcurrency');
@@ -157,7 +168,7 @@ describe('GravityPrototype', () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(12);
     await renderGravity();
-    const scene = await screen.findByTestId('gravity-scene');
+    const scene = await findScene();
     expect(scene).toHaveAttribute('data-roster-size', String(DESKTOP_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '2');
     expect(scene).toHaveAttribute('data-compact', 'false');
@@ -169,7 +180,7 @@ describe('GravityPrototype', () => {
     vi.mocked(detectWebGLSupport).mockReturnValue(true);
     stubCores(4);
     await renderGravity();
-    const scene = await screen.findByTestId('gravity-scene');
+    const scene = await findScene();
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(scene).toHaveAttribute('data-max-dpr', '1.5');
   });
@@ -179,7 +190,7 @@ describe('GravityPrototype', () => {
     stubCores(8);
     stubMatchMedia(false, true);
     await renderGravity();
-    const scene = await screen.findByTestId('gravity-scene');
+    const scene = await findScene();
     expect(scene).toHaveAttribute('data-compact', 'true');
     expect(scene).toHaveAttribute('data-roster-size', String(CONSTRAINED_BODY_COUNT));
     expect(screen.queryByLabelText(PILE_LABEL)).not.toBeInTheDocument();
