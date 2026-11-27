@@ -58,7 +58,11 @@ export interface DbState {
     subcategory: string[];
     level: string[];
     locations: string[];
+    recentActiveKeywordListId: string | null;
+    trendActiveKeywordListId: string | null;
   } | null;
+  /** The account's own keyword lists (the built-in is never stored). */
+  keywordLists?: { id: string; name: string; tags: { text: string; mode: string }[] }[];
 }
 
 /** The identity's row in jobscraper_e2e_onboarding, read through identities.py. */

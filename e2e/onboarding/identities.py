@@ -126,6 +126,15 @@ def saved_filters_row(conn: Any, user_id: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
+def keyword_lists(conn: Any, user_id: str) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, tags FROM user_keyword_lists WHERE user_id = %s ORDER BY position, created_at",
+            (user_id,),
+        )
+        return [{"id": r["id"], "name": r["name"], "tags": r["tags"]} for r in cur.fetchall()]
+
+
 def state(conn: Any, ident: Identity) -> dict[str, Any]:
     """The identity's DB state, JSON-ready (the UI tier's oracle)."""
     rows = user_rows(conn, ident)
@@ -151,6 +160,9 @@ def state(conn: Any, ident: Identity) -> dict[str, Any]:
             "trendActiveKeywordListId": sf["trend_active_keyword_list_id"],
         }
     )
+    # The user's own lists (the built-in is never stored). Save default search
+    # keeps typed keywords in one named "Default search" (OB-U14..OB-U16).
+    out["keywordLists"] = keyword_lists(conn, row["id"])
     return out
 
 
