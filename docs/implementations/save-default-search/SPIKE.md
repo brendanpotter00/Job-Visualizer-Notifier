@@ -114,6 +114,7 @@ Why sessionStorage and not the URL: the URL sync (`features/filters/urlFilters.t
 **Other edges:**
 
 - Sign-in cancelled (load resolves signed out): the search is still restored on screen, then the pending is cleared. Nothing is sent.
+- Back from the sign-in page restores the page from the back/forward cache (no new load): `pageshow` with `persisted` clears the pending. Otherwise the next, unrelated sign-in in that tab would save the abandoned search over the reader's default.
 - Reload mid-save: the pending is cleared only after the attempt, so a reload re-applies it. Same values, so it is safe.
 - Expired or malformed pending: dropped.
 - Sign-in redirect throws: clear the pending; show "Couldn't open sign-in. Try again."

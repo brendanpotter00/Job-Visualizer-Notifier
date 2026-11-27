@@ -28,6 +28,11 @@ import { useSaveDefaultSearch } from './useSaveDefaultSearch';
  *   (and searches) the pending filters, never the old saved default.
  * - DISCARD: once auth resolves signed out (the sign-in was cancelled), the
  *   pending search is dropped. Nothing is sent.
+ * - DISCARD on Back: Back from the sign-in page can bring the page that wrote
+ *   the search back from the back/forward cache, with no new load. Then no load
+ *   ever resolves signed out, and the next, unrelated sign-in in this tab would
+ *   save the abandoned search over the reader's default. So a page shown from
+ *   that cache (`pageshow` with `persisted`) drops it too.
  * - APPLY, once: signed in, saved filters and keyword lists loaded, and the
  *   current user loaded or failed. A brand-new account (`onboardingCompletedAt
  *   === null`) is first stamped with the search's answers, because
@@ -59,6 +64,16 @@ export function useApplyPendingDefaultSearch(): void {
     if (started.current || isLoading || isAuthenticated) return;
     if (pendingDefaultSearchAtLoad()) clearPendingDefaultSearch();
   }, [isLoading, isAuthenticated]);
+
+  useEffect(() => {
+    // Any search still stored when a page comes back from the back/forward
+    // cache was abandoned: a finished sign-in lands on a NEW load instead.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) clearPendingDefaultSearch();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   useEffect(() => {
     if (started.current || !isAuthenticated) return;

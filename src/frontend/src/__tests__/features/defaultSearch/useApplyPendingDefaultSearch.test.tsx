@@ -245,6 +245,45 @@ describe('useApplyPendingDefaultSearch', () => {
     expect(completeMock).not.toHaveBeenCalled();
   });
 
+  describe('Back from the sign-in page restores this page from the back/forward cache', () => {
+    /** A `pageshow` like the browser's: `persisted` is true for a cache restore. */
+    const pageShow = (persisted: boolean) => {
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: persisted });
+      window.dispatchEvent(event);
+    };
+
+    /** Signed out with no pending search at load, then the click stores one. */
+    function clickedThenLeft() {
+      window.sessionStorage.clear();
+      resetPendingDefaultSearchForTests();
+      state.isAuthenticated = false;
+      const view = mount();
+      writePendingDefaultSearch(PENDING);
+      return view;
+    }
+
+    it('drops the abandoned search, so a later sign-in cannot save it', () => {
+      clickedThenLeft();
+      expect(pendingStored()).not.toBeNull();
+      pageShow(true);
+      expect(pendingStored()).toBeNull();
+    });
+
+    it('mirror: an ordinary pageshow (a real load) keeps it', () => {
+      clickedThenLeft();
+      pageShow(false);
+      expect(pendingStored()).not.toBeNull();
+    });
+
+    it('stops listening once unmounted', () => {
+      const { unmount } = clickedThenLeft();
+      unmount();
+      pageShow(true);
+      expect(pendingStored()).not.toBeNull();
+    });
+  });
+
   it('keeps the pending search while auth is still loading', async () => {
     state.isAuthenticated = false;
     state.isLoading = true;
