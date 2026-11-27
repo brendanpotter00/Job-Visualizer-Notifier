@@ -43,7 +43,7 @@ import {
   freshIdentity,
   openSignedIn,
   questions,
-  shot,
+  shot as rawShot,
   trackUserFetches,
   type DbState,
   type Identity,
@@ -54,6 +54,30 @@ const AUTH0_HOST = 'e2e.local.test';
 const BACKEND = process.env.E2E_BACKEND_URL ?? 'http://127.0.0.1:8205';
 
 // --- Drivers -------------------------------------------------------------------
+
+/**
+ * A screenshot taken once the page is still: every finite animation or
+ * transition has finished (the save button fades black -> green over 250ms, and
+ * a closing menu fades out), capped at 2s so a looping one can't hang it. These
+ * screenshots are the PR's evidence, so a mid-fade frame misreports the design.
+ */
+async function shot(page: Page, caseId: string, name: string): Promise<void> {
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]),
+  );
+  // Role queries skip hidden elements, so a kept-mounted closed menu doesn't count.
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await rawShot(page, caseId, name);
+}
 
 const byName = (page: Page, name: string): Locator => page.getByRole('button', { name, exact: true });
 /** Signed out (nothing saved yet). */
