@@ -2,6 +2,7 @@ import type { JSONSchema7Definition } from 'json-schema';
 import {
   resetRecentJobsFilters,
   setRecentJobsCategory,
+  setRecentJobsCompanyCategory,
   setRecentJobsEmploymentType,
   setRecentJobsLevel,
   setRecentJobsLocation,
@@ -39,6 +40,11 @@ const ARRANGE_PROPERTIES: Record<string, JSONSchema7Definition> = {
     items: { type: 'string' },
     description: "Enrichment level slugs; 'entry' also matches new_grad.",
   },
+  companyCategory: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Company-type slugs from list_filter_options companyCategories (OR).',
+  },
   location: {
     type: 'array',
     items: { type: 'string' },
@@ -74,6 +80,9 @@ export function tier2DriveUi(ctx: ToolCtx): WebMcpToolDef[] {
       if ('timeWindow' in rawArgs) dispatch(setRecentJobsTimeWindow(args.timeWindow));
       if ('category' in rawArgs) dispatch(setRecentJobsCategory(args.category ?? []));
       if ('level' in rawArgs) dispatch(setRecentJobsLevel(args.level ?? []));
+      if ('companyCategory' in rawArgs) {
+        dispatch(setRecentJobsCompanyCategory(args.companyCategory ?? []));
+      }
       if ('location' in rawArgs) dispatch(setRecentJobsLocation(args.location ?? []));
       if ('employmentType' in rawArgs) {
         dispatch(setRecentJobsEmploymentType(args.employmentType));

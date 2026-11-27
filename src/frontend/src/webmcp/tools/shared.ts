@@ -121,6 +121,8 @@ export interface RecentToolArgs {
   exclude?: string[];
   category?: string[];
   level?: string[];
+  /** Company-type slugs from list_filter_options' `companyCategories` (OR). */
+  companyCategory?: string[];
   company?: string[];
   location?: string[];
   timeWindow: TimeWindow;
@@ -134,6 +136,7 @@ export function parseRecentArgs(args: Record<string, unknown>): RecentToolArgs {
     exclude: asStringArray(args.exclude),
     category: asStringArray(args.category),
     level: asStringArray(args.level),
+    companyCategory: asStringArray(args.companyCategory),
     company: asStringArray(args.company),
     location: asStringArray(args.location),
     timeWindow: asTimeWindow(args.timeWindow, 'all'),
@@ -188,6 +191,7 @@ export function buildRecentFilters(args: RecentToolArgs): RecentJobsFilters {
   if (args.location) filters.location = args.location;
   if (args.category) filters.category = args.category;
   if (args.level) filters.level = args.level;
+  if (args.companyCategory) filters.companyCategory = args.companyCategory;
   if (args.employmentType) filters.employmentType = args.employmentType;
 
   // softwareOnly last: it mutates searchTags via the shared util, so it must run
