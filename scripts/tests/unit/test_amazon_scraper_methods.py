@@ -192,6 +192,8 @@ class TestFilterJobInterns:
         "Quant Internship",
         "Summer Interns Program",
         "Summer Internships",
+        # Live titles from the real board (2026-11-27):
+        "PDE Intern (Summer), Summer 2027",
     ])
     def test_keeps_intern_only_titles(self, amazon_scraper, title):
         assert self._has_no_other_include_keyword(title), title
@@ -204,6 +206,9 @@ class TestFilterJobInterns:
         "Internet Policy Lead",
         "Internal Communications Partner",
         "International Growth Strategist",
+        # Live titles from the real board (2026-11-27):
+        "Internal Communications Business Partner",
+        "Senior Internal Auditor, Operations Risk Internal Audit",
     ])
     def test_drops_intern_false_friends(self, amazon_scraper, title):
         assert self._has_no_other_include_keyword(title), title

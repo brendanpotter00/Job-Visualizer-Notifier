@@ -113,6 +113,8 @@ class TestFilterJobInterns:
         "Quant Internship",
         "Summer Interns Program",
         "Summer Internships",
+        # Live titles from the real board (2026-11-27):
+        "Industry Strategy Project Intern (TikTok Shop - US Operation) - 2026 Start",
     ])
     def test_keeps_intern_only_titles(self, tiktok_scraper, title):
         assert self._has_no_other_include_keyword(title), title
@@ -125,6 +127,8 @@ class TestFilterJobInterns:
         "Internet Policy Lead",
         "Internal Communications Partner",
         "International Growth Strategist",
+        # Live titles from the real board (2026-11-27):
+        "TikTok Shop - International Logistics Service Expert (Malaysia E-Commerce)",
     ])
     def test_drops_intern_false_friends(self, tiktok_scraper, title):
         assert self._has_no_other_include_keyword(title), title

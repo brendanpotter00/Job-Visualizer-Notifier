@@ -352,6 +352,9 @@ class TestFilterJob:
         assert scraper.filter_job("PhD Intern") is True
         assert scraper.filter_job("Summer Intern") is True
         assert scraper.filter_job("Quant Internship") is True
+        # Live title from the real board (2026-11-27); "applied science" is not
+        # an include keyword, so only the whole word "Internship" keeps it.
+        assert scraper.filter_job("Applied Science: PhD Internship Opportunities, Turing") is True
 
     def test_filter_job_excludes_intern_false_friends(self):
         """'intern' matches as a whole word, so internet/international/internal
@@ -361,6 +364,8 @@ class TestFilterJob:
         assert scraper.filter_job("International Tax Analyst") is False
         assert scraper.filter_job("Internet Policy Lead") is False
         assert scraper.filter_job("Internal Communications Partner") is False
+        # Live title from the real board (2026-11-27).
+        assert scraper.filter_job("Internal Audit Manager") is False
 
     def test_filter_job_excludes_non_tech(self):
         """Non-tech titles are filtered out"""
