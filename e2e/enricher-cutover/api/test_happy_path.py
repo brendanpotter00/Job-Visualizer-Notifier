@@ -46,7 +46,7 @@ def test_co01_happy_path_end_to_end(happy, step):
     assert [k for k, _ in kinds] == ["unload", "load"], kinds
     unload, load = calls
     assert unload["lock"] == st["old_lock_payload"], unload
-    assert unload["job_running"] is False and unload["workdir"] == str(sb.old)
+    assert not sb.unload_hit_a_tick(unload) and unload["workdir"] == str(sb.old), unload
     assert load["workdir"] == str(sb.new_enricher) and unload["t"] < load["t"]
 
     step("the plist differs from the original by exactly the two old-prod paths")

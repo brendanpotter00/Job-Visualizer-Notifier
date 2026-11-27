@@ -521,6 +521,17 @@ class Sandbox:
     def events(self) -> list[dict[str, Any]]:
         return read_jsonl(self.events_path)
 
+    def unload_hit_a_tick(self, call: dict[str, Any]) -> bool:
+        """Was the job running at this ``unload`` call a wrapper that owned a tick?
+        A fire can start between the cutover's idle check and its unload (the
+        sandbox fires every 1 s); the cutover holds the lock, so it owns none."""
+        pid = call.get("job_pid")
+        if not call.get("job_running") or pid is None:
+            return False
+        return any((e["ev"] == "killed" and e.get("pid") == pid)
+                   or (e["ev"] == "end" and e.get("owner") is not None and int(e["owner"]) == pid)
+                   for e in self.events())
+
     def texts(self) -> list[str]:
         if not self.send_log.exists():
             return []
