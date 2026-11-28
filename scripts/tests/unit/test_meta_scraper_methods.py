@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from shared.constants import SourceId
 from shared.models import JobListing
 from shared.posted_date import effective_posted_date
-from meta_jobs_scraper.config import LIST_URL
+from meta_jobs_scraper.config import INCLUDE_TITLE_KEYWORDS, LIST_URL
 from meta_jobs_scraper.scraper import MetaJobsScraper
 
 
@@ -141,6 +141,57 @@ class TestFilterJob:
     def test_empty_title(self, meta_scraper):
         assert meta_scraper.filter_job("") is False
         assert meta_scraper.filter_job(None) is False
+
+
+class TestFilterJobInterns:
+    """Intern postings are kept, and "intern" matches only as a whole word.
+
+    The intern-only titles contain no other include keyword (asserted first,
+    with a plain substring check), so they are dropped if "intern" leaves
+    INCLUDE_TITLE_KEYWORDS. The false friends would pass a naive substring
+    match on "intern"; whole-word matching must drop them.
+    """
+
+    @staticmethod
+    def _has_no_other_include_keyword(title):
+        lowered = title.lower()
+        return not any(
+            kw.lower() in lowered for kw in INCLUDE_TITLE_KEYWORDS if kw != "intern"
+        )
+
+    @pytest.mark.parametrize("title", [
+        "PhD Intern",
+        "Quant Internship",
+        "Summer Interns Program",
+        "Summer Internships",
+        # Live titles from the real board (2026-11-27):
+        "Signal Integrity Intern",
+    ])
+    def test_keeps_intern_only_titles(self, meta_scraper, title):
+        assert self._has_no_other_include_keyword(title), title
+        assert meta_scraper.filter_job(title) is True
+
+    def test_keeps_software_intern(self, meta_scraper):
+        assert meta_scraper.filter_job("Software Engineer Intern") is True
+
+    @pytest.mark.parametrize("title", [
+        "Internet Policy Lead",
+        "Internal Communications Partner",
+        "International Growth Strategist",
+        # Live titles from the real board (2026-11-27):
+        "Internal Communications Manager, Enterprise Platform",
+        "Program Manager. International Payments Testing",
+    ])
+    def test_drops_intern_false_friends(self, meta_scraper, title):
+        assert self._has_no_other_include_keyword(title), title
+        assert meta_scraper.filter_job(title) is False
+
+    @pytest.mark.parametrize("title", [
+        "Recruiting Intern",
+        "Human Resources Intern",
+    ])
+    def test_exclude_still_beats_intern(self, meta_scraper, title):
+        assert meta_scraper.filter_job(title) is False
 
 
 class TestFilterLocation:

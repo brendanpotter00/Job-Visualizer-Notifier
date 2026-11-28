@@ -98,7 +98,7 @@ pip install -r scripts/requirements-dev.txt      # Install dev dependencies (tes
 - `shared/incremental.py` - 5-phase incremental scraping algorithm
 - `shared/models.py` - Database-aligned Pydantic models (JobListing, ScrapeRun)
 - `shared/batch_writer.py` - Buffered batch writing utility
-- `shared/utils.py` - Shared utilities (timestamps)
+- `shared/utils.py` - Shared utilities (timestamps, whole-word title-keyword matching)
 - `shared/constants.py` - Shared constants (table names, etc.)
 - Schema is managed by Alembic in `src/backend/alembic/` (see `src/backend/AGENTS.md` § Schema migrations).
 
@@ -399,6 +399,8 @@ Edit company-specific `config.py`:
 - `INCLUDE_TITLE_KEYWORDS` - Jobs must match at least one keyword
 - `EXCLUDE_TITLE_KEYWORDS` - Jobs matching these are filtered out
 - `LOCATION_FILTER` - Location filter (US-only for Google, configurable for Apple)
+
+Every scraper lists `intern` in `INCLUDE_TITLE_KEYWORDS` and matches its INCLUDE list through `shared.utils.title_matches_keyword`. Most keywords match as case-insensitive substrings (e.g. `software`, `ML`, `iOS`), but whole-word keywords like `intern` (see `_WHOLE_WORD_KEYWORD_PATTERNS`) match only as whole words — so `intern` matches "Software Engineering Intern"/"Internship" but not "Internet"/"International"/"Internal". Google, Apple and Microsoft match EXCLUDE through the same helper; Amazon, TikTok and Meta keep their own word-boundary EXCLUDE regex. `intern` admits interns of every discipline (e.g. "Finance Intern") unless the EXCLUDE list drops them; Apple and Meta have no server-side keyword search, so their title filter is the only narrowing.
 
 **Adding a New Company Scraper:**
 1. Create new directory: `scripts/<company>_jobs_scraper/`

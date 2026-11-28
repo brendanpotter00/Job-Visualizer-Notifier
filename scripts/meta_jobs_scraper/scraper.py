@@ -34,7 +34,7 @@ from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
 from shared.posted_date import effective_posted_date
-from shared.utils import get_iso_timestamp
+from shared.utils import get_iso_timestamp, title_matches_keyword
 
 from .config import (
     BODY_READ_TIMEOUT_S,
@@ -68,8 +68,6 @@ _EXCLUDE_RE = re.compile(
     r"(?<![a-z])(?:%s)(?![a-z])"
     % "|".join(re.escape(kw.lower()) for kw in EXCLUDE_TITLE_KEYWORDS)
 )
-
-_INCLUDE_KEYWORDS_LOWER = [kw.lower() for kw in INCLUDE_TITLE_KEYWORDS]
 
 # Meta has no keyword search — one page load yields the whole catalogue — so the
 # single sentinel query drives exactly one scrape_query call. scrape_query
@@ -127,14 +125,16 @@ class MetaJobsScraper(BaseScraper):
 
         EXCLUDE uses word boundaries, INCLUDE uses plain substrings — a loose
         EXCLUDE silently discards real listings, whereas a loose INCLUDE only
-        lets through an extra role.
+        lets through an extra role. The one INCLUDE exception is whole-word
+        keywords like "intern" (see shared.utils.title_matches_keyword), so
+        "intern" does not over-match "internet" / "international" / "internal".
         """
         if not job_title:
             return False
         title_lower = job_title.lower()
         if _EXCLUDE_RE.search(title_lower):
             return False
-        return any(kw in title_lower for kw in _INCLUDE_KEYWORDS_LOWER)
+        return any(title_matches_keyword(kw, job_title) for kw in INCLUDE_TITLE_KEYWORDS)
 
     def filter_location(self, location: Optional[str]) -> bool:
         """Keep only US jobs.

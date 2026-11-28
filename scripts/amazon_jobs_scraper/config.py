@@ -23,7 +23,9 @@ SORT = "recent"
 # Search queries (Amazon supports free-text relevance search via base_query)
 SEARCH_QUERIES = ["software engineer"]
 
-# Title keywords to include (case-insensitive substring match).
+# Title keywords to include (case-insensitive substring match, except whole-word
+# keywords like "intern", which match intern(s)/internship(s) but not
+# internet/international/internal; see shared.utils.title_matches_keyword).
 # Tuned for Amazon's vocabulary: "SDE" and "Engr" are Amazon-specific
 # abbreviations that a generic list would drop.
 INCLUDE_TITLE_KEYWORDS = [
@@ -44,6 +46,7 @@ INCLUDE_TITLE_KEYWORDS = [
     "sde",
     "architect",
     "analyst",
+    "intern",
 ]
 
 # Title keywords to exclude (non-tech roles).

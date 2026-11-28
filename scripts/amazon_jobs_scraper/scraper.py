@@ -24,7 +24,7 @@ from shared.base_scraper import BaseScraper
 from shared.constants import SourceId
 from shared.models import JobListing
 from shared.posted_date import effective_posted_date
-from shared.utils import get_iso_timestamp
+from shared.utils import get_iso_timestamp, title_matches_keyword
 
 from .config import (
     BASE_URL,
@@ -63,8 +63,6 @@ _EXCLUDE_RE = re.compile(
     if EXCLUDE_TITLE_KEYWORDS
     else _NEVER_MATCHES
 )
-
-_INCLUDE_KEYWORDS_LOWER = [kw.lower() for kw in INCLUDE_TITLE_KEYWORDS]
 
 # Experience-level heuristics, most specific first. Amazon returns null for
 # is_intern / university_job / is_manager on every row observed live
@@ -168,7 +166,9 @@ class AmazonJobsScraper(BaseScraper):
         EXCLUDE uses word boundaries, INCLUDE uses plain substrings. The
         asymmetry is deliberate: Amazon has already narrowed by relevance
         server-side, so a loose INCLUDE costs nothing, whereas a loose EXCLUDE
-        silently discards real listings.
+        silently discards real listings. The one INCLUDE exception is
+        whole-word keywords like "intern" (see shared.utils.title_matches_keyword),
+        so "intern" does not over-match "internet" / "international" / "internal".
 
         EXCLUDE is matched only against the **role segment** — everything before
         the first comma. Amazon's title convention is "<Role>, <Team/Org>", and
@@ -184,7 +184,7 @@ class AmazonJobsScraper(BaseScraper):
         role_segment = title_lower.split(",", 1)[0]
         if _EXCLUDE_RE.search(role_segment):
             return False
-        return any(kw in title_lower for kw in _INCLUDE_KEYWORDS_LOWER)
+        return any(title_matches_keyword(kw, job_title) for kw in INCLUDE_TITLE_KEYWORDS)
 
     # ---- Session + pagination -------------------------------------------
 

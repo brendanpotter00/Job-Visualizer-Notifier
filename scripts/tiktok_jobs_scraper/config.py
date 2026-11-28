@@ -35,7 +35,9 @@ SEARCH_QUERIES = ["software engineer"]
 # fetch-then-filter shape the Apple scraper uses.
 LOCATION_FILTER = "United States"
 
-# Title keywords to include (case-insensitive substring match)
+# Title keywords to include (case-insensitive substring match, except whole-word
+# keywords like "intern", which match intern(s)/internship(s) but not
+# internet/international/internal; see shared.utils.title_matches_keyword).
 INCLUDE_TITLE_KEYWORDS = [
     "software",
     "engineer",
@@ -56,6 +58,7 @@ INCLUDE_TITLE_KEYWORDS = [
     "backend",
     "frontend",
     "full stack",
+    "intern",
 ]
 
 # Title keywords to exclude (non-tech roles).

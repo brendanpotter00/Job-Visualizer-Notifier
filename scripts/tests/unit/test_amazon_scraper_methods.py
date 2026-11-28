@@ -15,7 +15,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from amazon_jobs_scraper.config import REQUEST_DELAY_MAX, REQUEST_DELAY_MIN, SEARCH_QUERIES
+from amazon_jobs_scraper.config import (
+    INCLUDE_TITLE_KEYWORDS,
+    REQUEST_DELAY_MAX,
+    REQUEST_DELAY_MIN,
+    SEARCH_QUERIES,
+)
 from amazon_jobs_scraper.scraper import AmazonJobsScraper
 from shared.constants import SourceId
 
@@ -164,6 +169,57 @@ class TestFilterJob:
             assert amazon_scraper.filter_job("Software Development Engineer, EC2") is True
             assert amazon_scraper.filter_job("Sr. Software Engineer") is True
             assert amazon_scraper.filter_job("SDE II - Amazon Robotics") is True
+
+
+class TestFilterJobInterns:
+    """Intern postings are kept, and "intern" matches only as a whole word.
+
+    The intern-only titles contain no other include keyword (asserted first,
+    with a plain substring check), so they are dropped if "intern" leaves
+    INCLUDE_TITLE_KEYWORDS. The false friends would pass a naive substring
+    match on "intern"; whole-word matching must drop them.
+    """
+
+    @staticmethod
+    def _has_no_other_include_keyword(title):
+        lowered = title.lower()
+        return not any(
+            kw.lower() in lowered for kw in INCLUDE_TITLE_KEYWORDS if kw != "intern"
+        )
+
+    @pytest.mark.parametrize("title", [
+        "PhD Intern",
+        "Quant Internship",
+        "Summer Interns Program",
+        "Summer Internships",
+        # Live titles from the real board (2026-11-27):
+        "PDE Intern (Summer), Summer 2027",
+    ])
+    def test_keeps_intern_only_titles(self, amazon_scraper, title):
+        assert self._has_no_other_include_keyword(title), title
+        assert amazon_scraper.filter_job(title) is True
+
+    def test_keeps_software_intern(self, amazon_scraper):
+        assert amazon_scraper.filter_job("Software Engineer Intern") is True
+
+    @pytest.mark.parametrize("title", [
+        "Internet Policy Lead",
+        "Internal Communications Partner",
+        "International Growth Strategist",
+        # Live titles from the real board (2026-11-27):
+        "Internal Communications Business Partner",
+        "Senior Internal Auditor, Operations Risk Internal Audit",
+    ])
+    def test_drops_intern_false_friends(self, amazon_scraper, title):
+        assert self._has_no_other_include_keyword(title), title
+        assert amazon_scraper.filter_job(title) is False
+
+    @pytest.mark.parametrize("title", [
+        "Recruiting Intern",
+        "Human Resources Intern",
+    ])
+    def test_exclude_still_beats_intern(self, amazon_scraper, title):
+        assert amazon_scraper.filter_job(title) is False
 
 
 class TestDeriveExperienceLevel:
