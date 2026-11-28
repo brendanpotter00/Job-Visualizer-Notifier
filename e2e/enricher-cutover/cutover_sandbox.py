@@ -521,6 +521,39 @@ class Sandbox:
     def events(self) -> list[dict[str, Any]]:
         return read_jsonl(self.events_path)
 
+    def unload_hit_a_tick(self, call: dict[str, Any]) -> bool:
+        """Did this ``unload`` hit a wrapper that owned a tick?
+
+        The call's ``job_running`` alone is stricter than that. The stub fires
+        every ``FAKE_INTERVAL_S``, so a fire can start between the cutover's
+        idle check and its unload. The cutover already holds the tick lock
+        then, so that fire can only skip (exit 75), and the cutover waits for
+        it to exit after the unload. A wrapper owns a tick from its
+        ``tick-acquire`` until it exits, so the job running at the call hit a
+        tick if it acquired one at any time in its run (before the unload, or
+        after it when the unload left the job running), or it was SIGTERMed
+        while owning one (a ``killed`` event).
+        """
+        if not call.get("job_running"):
+            return False
+        pid = call["job_pid"]
+        jobs = self.jobs()
+        starts = [j for j in jobs if j["event"] == "start" and j["pid"] == pid]
+        if not starts:
+            return True  # a running job with no record of its run: count it as a hit
+        # The run of that pid nearest the call: the stub stamps a call's time
+        # before it takes its state lock, so a fire's start can be stamped a
+        # moment after the unload that saw it. No pid repeats within a sandbox.
+        start = min(starts, key=lambda j: abs(j["t"] - call["t"]))["t"]
+        end = min((j["t"] for j in jobs if j["event"] == "end" and j["pid"] == pid
+                   and j["t"] >= start), default=float("inf"))
+        workdir = os.path.realpath(call["workdir"])
+        return any(
+            (e["ev"] == "killed" and e.get("pid") == pid)
+            or (e["ev"] == "acquire" and start <= e.get("t", 0) <= end
+                and os.path.realpath(e.get("dir", "")) == workdir)
+            for e in self.events())
+
     def texts(self) -> list[str]:
         if not self.send_log.exists():
             return []
